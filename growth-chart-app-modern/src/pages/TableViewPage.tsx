@@ -1,88 +1,169 @@
-import React from 'react';
-
-// Mock data for the table
-interface GrowthRecord {
-  id: string;
-  date: string;
-  ageMonths: number;
-  measurementType: 'Weight' | 'Height' | 'Head Circumference' | 'BMI';
-  value: number;
-  unit: 'kg' | 'cm' | 'm²'; // BMI unit would be kg/m² but simplified here
-  notes?: string;
-}
-
-const mockGrowthData: GrowthRecord[] = [
-  { id: 'rec1', date: '2023-01-15', ageMonths: 0, measurementType: 'Weight', value: 3.5, unit: 'kg' },
-  { id: 'rec2', date: '2023-01-15', ageMonths: 0, measurementType: 'Height', value: 50, unit: 'cm' },
-  { id: 'rec3', date: '2023-02-15', ageMonths: 1, measurementType: 'Weight', value: 4.2, unit: 'kg' },
-  { id: 'rec4', date: '2023-02-15', ageMonths: 1, measurementType: 'Height', value: 54, unit: 'cm' },
-  { id: 'rec5', date: '2023-04-15', ageMonths: 3, measurementType: 'Weight', value: 5.8, unit: 'kg' },
-  { id: 'rec6', date: '2023-04-15', ageMonths: 3, measurementType: 'Height', value: 60, unit: 'cm' },
-  { id: 'rec7', date: '2023-04-15', ageMonths: 3, measurementType: 'Head Circumference', value: 40.5, unit: 'cm' },
-  { id: 'rec8', date: '2023-07-15', ageMonths: 6, measurementType: 'Weight', value: 7.9, unit: 'kg', notes: 'Started solids' },
-  { id: 'rec9', date: '2023-07-15', ageMonths: 6, measurementType: 'Height', value: 66, unit: 'cm' },
-];
+import React, { useState } from 'react';
+import useAppStore, { GrowthRecord, NewGrowthRecordData, useCurrentPatient, useCurrentPatientRecords } from '../store/appStore';
 
 const TableViewPage: React.FC = () => {
-  // In a real app, this data would come from the selected patient's records
-  const recordsToDisplay = mockGrowthData;
+  const currentPatient = useCurrentPatient();
+  const recordsToDisplay = useCurrentPatientRecords();
+  const addGrowthRecord = useAppStore((state) => state.addGrowthRecord);
+
+  // State for the new growth record form
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newRecordDate, setNewRecordDate] = useState(new Date().toISOString().split('T')[0]); // Default to today
+  const [newRecordAgeMonths, setNewRecordAgeMonths] = useState<number | ''>('');
+  const [newRecordType, setNewRecordType] = useState<GrowthRecord['measurementType']>('Weight');
+  const [newRecordValue, setNewRecordValue] = useState<number | ''>('');
+  const [newRecordUnit, setNewRecordUnit] = useState<GrowthRecord['unit']>('kg');
+  const [newRecordNotes, setNewRecordNotes] = useState('');
+
+  const handleUnitChangeBasedOnType = (type: GrowthRecord['measurementType']) => {
+    switch (type) {
+      case 'Weight': setNewRecordUnit('kg'); break;
+      case 'Height':
+      case 'Length':
+      case 'HeadCircumference': setNewRecordUnit('cm'); break;
+      case 'BMI': setNewRecordUnit('kg/m²'); break;
+      default: setNewRecordUnit('kg');
+    }
+  };
+
+  const handleMeasurementTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const type = e.target.value as GrowthRecord['measurementType'];
+    setNewRecordType(type);
+    handleUnitChangeBasedOnType(type);
+  };
+
+  const handleAddRecord = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentPatient) {
+      alert('No patient selected.');
+      return;
+    }
+    if (newRecordAgeMonths === '' || newRecordValue === '') {
+      alert('Age at measurement and value are required.');
+      return;
+    }
+
+    const recordData: NewGrowthRecordData = {
+      patientId: currentPatient.id,
+      date: newRecordDate,
+      ageMonths: Number(newRecordAgeMonths),
+      measurementType: newRecordType,
+      value: Number(newRecordValue),
+      unit: newRecordUnit,
+      notes: newRecordNotes.trim() || undefined,
+    };
+    addGrowthRecord(recordData);
+
+    // Reset form
+    setNewRecordDate(new Date().toISOString().split('T')[0]);
+    setNewRecordAgeMonths('');
+    setNewRecordType('Weight');
+    setNewRecordValue('');
+    setNewRecordUnit('kg');
+    setNewRecordNotes('');
+    setShowAddForm(false);
+  };
+
+  if (!currentPatient) {
+    return (
+      <div className="p-4 text-center">
+        <h2 className="text-2xl font-semibold mb-6 text-gray-700">Growth Data Table</h2>
+        <p className="text-gray-500">Please select a patient from the "Patient Selection" page to view and add growth records.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4">
-      <h2 className="text-2xl font-semibold mb-6">Growth Data Table View</h2>
+      <h2 className="text-2xl font-semibold mb-2">Growth Data for: <span className="text-blue-600">{currentPatient.name}</span></h2>
+      <p className="text-sm text-gray-500 mb-6">DOB: {currentPatient.dob} | Sex: {currentPatient.sex}</p>
 
-      {/* Add filter/sort controls here in a real app */}
-      <div className="mb-4 flex space-x-2">
+      <div className="mb-6">
         <button
-            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-sm"
-            onClick={() => alert('Add data entry form to be implemented')}
+            onClick={() => setShowAddForm(!showAddForm)}
+            className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-sm focus:outline-none focus:shadow-outline transition-colors"
         >
-            Add New Entry
-        </button>
-        <button
-            className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded text-sm"
-            onClick={() => alert('Filtering options to be implemented')}
-        >
-            Filter Data
+            {showAddForm ? 'Cancel Adding Entry' : 'Add New Growth Entry'}
         </button>
       </div>
+
+      {showAddForm && (
+        <div className="mb-8 p-6 bg-white shadow rounded-lg">
+          <h3 className="text-xl font-semibold mb-4 text-gray-700">Add New Growth Record</h3>
+          <form onSubmit={handleAddRecord} className="space-y-4 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+            <div>
+              <label htmlFor="newRecordDate" className="block text-sm font-medium text-gray-600">Date of Measurement</label>
+              <input type="date" id="newRecordDate" value={newRecordDate} onChange={(e) => setNewRecordDate(e.target.value)} required className="mt-1 input-field"/>
+            </div>
+            <div>
+              <label htmlFor="newRecordAgeMonths" className="block text-sm font-medium text-gray-600">Age at Measurement (Months)</label>
+              <input type="number" id="newRecordAgeMonths" value={newRecordAgeMonths} onChange={(e) => setNewRecordAgeMonths(Number(e.target.value))} placeholder="e.g., 6" required className="mt-1 input-field"/>
+            </div>
+            <div>
+              <label htmlFor="newRecordType" className="block text-sm font-medium text-gray-600">Measurement Type</label>
+              <select id="newRecordType" value={newRecordType} onChange={handleMeasurementTypeChange} required className="mt-1 select-field">
+                <option value="Weight">Weight</option>
+                <option value="Height">Height (standing)</option>
+                <option value="Length">Length (lying)</option>
+                <option value="HeadCircumference">Head Circumference</option>
+                <option value="BMI">BMI</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="newRecordValue" className="block text-sm font-medium text-gray-600">Value</label>
+              <input type="number" step="any" id="newRecordValue" value={newRecordValue} onChange={(e) => setNewRecordValue(Number(e.target.value))} required className="mt-1 input-field"/>
+            </div>
+            <div>
+              <label htmlFor="newRecordUnit" className="block text-sm font-medium text-gray-600">Unit</label>
+              <select id="newRecordUnit" value={newRecordUnit} onChange={(e) => setNewRecordUnit(e.target.value as GrowthRecord['unit'])} required className="mt-1 select-field">
+                {newRecordType === 'Weight' && <> <option value="kg">kg</option> <option value="lbs">lbs</option> </>}
+                {(newRecordType === 'Height' || newRecordType === 'Length' || newRecordType === 'HeadCircumference') && <> <option value="cm">cm</option> <option value="in">in</option> </>}
+                {newRecordType === 'BMI' && <option value="kg/m²">kg/m²</option>}
+              </select>
+            </div>
+            <div className="md:col-span-2">
+              <label htmlFor="newRecordNotes" className="block text-sm font-medium text-gray-600">Notes (Optional)</label>
+              <textarea id="newRecordNotes" value={newRecordNotes} onChange={(e) => setNewRecordNotes(e.target.value)} rows={3} className="mt-1 input-field" placeholder="Any relevant notes..."></textarea>
+            </div>
+            <div className="md:col-span-2 flex justify-end space-x-3">
+                <button type="button" onClick={() => setShowAddForm(false)} className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                    Cancel
+                </button>
+                <button type="submit" className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    Save Record
+                </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {recordsToDisplay.length > 0 ? (
         <div className="overflow-x-auto bg-white shadow rounded-lg">
           <table className="min-w-full leading-normal">
-            <thead>
-              <tr className="border-b-2 border-gray-200 bg-gray-100 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+            <thead className="bg-gray-50">
+              <tr className="border-b-2 border-gray-200 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                 <th className="px-5 py-3">Date</th>
                 <th className="px-5 py-3">Age (Months)</th>
-                <th className="px-5 py-3">Measurement Type</th>
+                <th className="px-5 py-3">Type</th>
                 <th className="px-5 py-3">Value</th>
                 <th className="px-5 py-3">Unit</th>
                 <th className="px-5 py-3">Notes</th>
                 <th className="px-5 py-3">Actions</th>
               </tr>
             </thead>
-            <tbody>
-              {recordsToDisplay.map((record) => (
-                <tr key={record.id} className="border-b border-gray-200 hover:bg-gray-50">
-                  <td className="px-5 py-4 text-sm">{record.date}</td>
-                  <td className="px-5 py-4 text-sm">{record.ageMonths}</td>
-                  <td className="px-5 py-4 text-sm">{record.measurementType}</td>
-                  <td className="px-5 py-4 text-sm">{record.value}</td>
-                  <td className="px-5 py-4 text-sm">{record.unit}</td>
-                  <td className="px-5 py-4 text-sm">{record.notes || 'N/A'}</td>
+            <tbody className="divide-y divide-gray-200">
+              {recordsToDisplay.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.ageMonths - a.ageMonths) // Sort by date desc, then age
+                .map((record) => (
+                <tr key={record.id} className="hover:bg-gray-50">
+                  <td className="px-5 py-4 text-sm text-gray-700">{record.date}</td>
+                  <td className="px-5 py-4 text-sm text-gray-700">{record.ageMonths}</td>
+                  <td className="px-5 py-4 text-sm text-gray-700">{record.measurementType}</td>
+                  <td className="px-5 py-4 text-sm text-gray-700">{record.value}</td>
+                  <td className="px-5 py-4 text-sm text-gray-700">{record.unit}</td>
+                  <td className="px-5 py-4 text-sm text-gray-700 whitespace-pre-wrap max-w-xs truncate" title={record.notes}>{record.notes || 'N/A'}</td>
                   <td className="px-5 py-4 text-sm">
-                    <button
-                        className="text-indigo-600 hover:text-indigo-900 mr-2 text-xs"
-                        onClick={() => alert(`Edit record ${record.id}`)}
-                    >
-                        Edit
-                    </button>
-                    <button
-                        className="text-red-600 hover:text-red-900 text-xs"
-                        onClick={() => alert(`Delete record ${record.id}`)}
-                    >
-                        Delete
-                    </button>
+                    <button className="text-indigo-600 hover:text-indigo-900 mr-2 text-xs" onClick={() => alert(`Edit record ${record.id} - TBD`)}>Edit</button>
+                    <button className="text-red-600 hover:text-red-900 text-xs" onClick={() => alert(`Delete record ${record.id} - TBD`)}>Delete</button>
                   </td>
                 </tr>
               ))}
@@ -90,8 +171,16 @@ const TableViewPage: React.FC = () => {
           </table>
         </div>
       ) : (
-        <p className="text-gray-600">No growth data available for the selected patient.</p>
+        <p className="text-gray-500 italic text-center py-4">No growth records found for {currentPatient.name}. Add one using the form above.</p>
       )}
+      <style jsx>{`
+        .input-field {
+          @apply block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm;
+        }
+        .select-field {
+          @apply block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md;
+        }
+      `}</style>
     </div>
   );
 };

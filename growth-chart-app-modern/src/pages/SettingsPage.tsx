@@ -1,52 +1,64 @@
-import React, { useState } from 'react';
-
-// Example settings structure
-interface AppSettings {
-  defaultChartType: 'WeightForAge' | 'HeightForAge' | 'HCForAge' | 'BMIForAge';
-  units: 'Metric' | 'Imperial';
-  darkMode: boolean;
-  language: 'English' | 'Spanish'; // Example languages
-  notifications: {
-    appointmentReminders: boolean;
-    newDataAlerts: boolean;
-  };
-}
-
-// Mock current settings - in a real app, this would come from Zustand/localStorage
-const initialSettings: AppSettings = {
-  defaultChartType: 'WeightForAge',
-  units: 'Metric',
-  darkMode: false,
-  language: 'English',
-  notifications: {
-    appointmentReminders: true,
-    newDataAlerts: false,
-  },
-};
+import React, { useState, useEffect } from 'react';
+import useAppStore, { AppSettings } from '../store/appStore';
 
 const SettingsPage: React.FC = () => {
-  const [settings, setSettings] = useState<AppSettings>(initialSettings);
-  const [isSaved, setIsSaved] = useState(false);
+  const storeSettings = useAppStore((state) => state.settings);
+  const updateSettingsInStore = useAppStore((state) => state.updateSettings);
 
-  const handleChange = (field: keyof AppSettings, value: any) => {
-    // For nested settings like notifications
-    if (field === 'notifications' && typeof value === 'object') {
-      setSettings(prev => ({
-        ...prev,
-        notifications: { ...prev.notifications, ...value }
-      }));
-    } else {
-      setSettings(prev => ({ ...prev, [field]: value }));
-    }
-    setIsSaved(false); // Reset saved status on change
+  // Local form state, initialized from store settings
+  const [localSettings, setLocalSettings] = useState<AppSettings>(storeSettings);
+  const [isSaved, setIsSaved] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // Effect to update local form state if storeSettings change (e.g., from another browser tab if using broadcast)
+  // Or simply to ensure it's initialized correctly on first load.
+  useEffect(() => {
+    setLocalSettings(storeSettings);
+    setHasChanges(false); // Reset changes status when store settings are reloaded
+  }, [storeSettings]);
+
+  const handleChange = (field: keyof AppSettings | `notifications.${keyof AppSettings['notifications']}`, value: any) => {
+    setLocalSettings(prev => {
+      if (field.startsWith('notifications.')) {
+        const notifKey = field.split('.')[1] as keyof AppSettings['notifications'];
+        return {
+          ...prev,
+          notifications: { ...prev.notifications, [notifKey]: value }
+        };
+      }
+      return { ...prev, [field as keyof AppSettings]: value };
+    });
+    setHasChanges(true); // Mark that there are unsaved changes
+    setIsSaved(false);
   };
 
   const handleSaveSettings = () => {
-    // Here you would persist settings (e.g., to localStorage or a backend)
-    console.log('Settings saved:', settings);
+    updateSettingsInStore(localSettings);
     setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 3000); // Hide message after 3s
+    setHasChanges(false); // Reset changes status after saving
+    setTimeout(() => setIsSaved(false), 3000);
   };
+
+  const handleResetToDefaults = () => {
+    // This would ideally reset to initial settings from the store definition or a predefined constant
+    // For now, let's assume store's initial state is the default
+    const defaultSettings = useAppStore.getState().settings; // Access initial state (or a predefined default const)
+    const initialStoreSettings = { // Reconstruct initial settings as defined in the store
+        defaultChartType: 'WeightForAge',
+        units: 'Metric',
+        darkMode: false,
+        language: 'English',
+        notifications: {
+          appointmentReminders: true,
+          newDataAlerts: false,
+        },
+      };
+    setLocalSettings(initialStoreSettings);
+    updateSettingsInStore(initialStoreSettings); // Also update store immediately
+    setHasChanges(false);
+    alert("Settings have been reset to defaults.");
+  };
+
 
   return (
     <div className="p-4">
@@ -61,8 +73,8 @@ const SettingsPage: React.FC = () => {
               <label htmlFor="defaultChartType" className="block text-sm font-medium text-gray-600 mb-1">Default Chart Type</label>
               <select
                 id="defaultChartType"
-                value={settings.defaultChartType}
-                onChange={(e) => handleChange('defaultChartType', e.target.value)}
+                value={localSettings.defaultChartType}
+                onChange={(e) => handleChange('defaultChartType', e.target.value as AppSettings['defaultChartType'])}
                 className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
               >
                 <option value="WeightForAge">Weight for Age</option>
@@ -75,8 +87,8 @@ const SettingsPage: React.FC = () => {
               <label htmlFor="units" className="block text-sm font-medium text-gray-600 mb-1">Units of Measurement</label>
               <select
                 id="units"
-                value={settings.units}
-                onChange={(e) => handleChange('units', e.target.value)}
+                value={localSettings.units}
+                onChange={(e) => handleChange('units', e.target.value as AppSettings['units'])}
                 className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
               >
                 <option value="Metric">Metric (kg, cm)</option>
@@ -94,7 +106,7 @@ const SettingsPage: React.FC = () => {
               <input
                 id="darkMode"
                 type="checkbox"
-                checked={settings.darkMode}
+                checked={localSettings.darkMode}
                 onChange={(e) => handleChange('darkMode', e.target.checked)}
                 className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
               />
@@ -104,8 +116,8 @@ const SettingsPage: React.FC = () => {
               <label htmlFor="language" className="block text-sm font-medium text-gray-600 mb-1">Language</label>
               <select
                 id="language"
-                value={settings.language}
-                onChange={(e) => handleChange('language', e.target.value)}
+                value={localSettings.language}
+                onChange={(e) => handleChange('language', e.target.value as AppSettings['language'])}
                 className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
               >
                 <option value="English">English</option>
@@ -123,8 +135,8 @@ const SettingsPage: React.FC = () => {
               <input
                 id="appointmentReminders"
                 type="checkbox"
-                checked={settings.notifications.appointmentReminders}
-                onChange={(e) => handleChange('notifications', { appointmentReminders: e.target.checked })}
+                checked={localSettings.notifications.appointmentReminders}
+                onChange={(e) => handleChange('notifications.appointmentReminders', e.target.checked)}
                 className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
               />
               <label htmlFor="appointmentReminders" className="ml-2 block text-sm text-gray-900">Appointment Reminders</label>
@@ -133,8 +145,8 @@ const SettingsPage: React.FC = () => {
               <input
                 id="newDataAlerts"
                 type="checkbox"
-                checked={settings.notifications.newDataAlerts}
-                onChange={(e) => handleChange('notifications', { newDataAlerts: e.target.checked })}
+                checked={localSettings.notifications.newDataAlerts}
+                onChange={(e) => handleChange('notifications.newDataAlerts', e.target.checked)}
                 className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
               />
               <label htmlFor="newDataAlerts" className="ml-2 block text-sm text-gray-900">New Data Alerts</label>
@@ -142,11 +154,19 @@ const SettingsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex justify-end items-center">
-          {isSaved && <p className="text-sm text-green-600 mr-4">Settings saved successfully!</p>}
+        <div className="flex flex-col sm:flex-row justify-end items-center space-y-3 sm:space-y-0 sm:space-x-3">
+          {isSaved && <p className="text-sm text-green-600 order-first sm:order-none">Settings saved successfully!</p>}
+           <button
+            onClick={handleResetToDefaults}
+            type="button"
+            className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 w-full sm:w-auto"
+          >
+            Reset to Defaults
+          </button>
           <button
             onClick={handleSaveSettings}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+            disabled={!hasChanges}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
           >
             Save Settings
           </button>
