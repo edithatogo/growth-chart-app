@@ -1,0 +1,24 @@
+[
+  {
+    "id": "who_length_boys_0_24_p",
+    "name": "WHO Length for Age (Boys, 0-24m, Percentiles)",
+    "description": "World Health Organization length-for-age standards for boys aged 0-24 months. Displays P3, P15, P50, P85, P97.",
+    "measurementType": "length_for_age",
+    "sex": "male",
+    "ageRangeMonths": [0, 24],
+    "source": "WHO",
+    "type": "percentiles",
+    "dataFile": "/data/centiles/who_length_boys_0_24_p.json"
+  },
+  {
+    "id": "cdc_weight_girls_2_20_z",
+    "name": "CDC Weight for Age (Girls, 2-20y, Z-Scores)",
+    "description": "Centers for Disease Control and Prevention weight-for-age standards for girls aged 2-20 years. Displays Z-scores -3 to +3.",
+    "measurementType": "weight_for_age",
+    "sex": "female",
+    "ageRangeMonths": [24, 240],
+    "source": "CDC",
+    "type": "z-scores",
+    "dataFile": "/data/centiles/cdc_weight_girls_2_20_z.json"
+  }
+]
