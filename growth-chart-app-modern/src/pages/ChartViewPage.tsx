@@ -1,26 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Line } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  TimeScale,
-  Filler
-} from 'chart.js';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale, Filler } from 'chart.js';
 import 'chartjs-adapter-date-fns';
-import { useCurrentPatient, useCurrentPatientRecords, GrowthRecord } from '../store/appStore'; // Import store hooks
+import useAppStore, { useCurrentPatient, useCurrentPatientRecords, GrowthRecord } from '../store/appStore';
+import Spinner from '../components/Spinner'; // Import Spinner
 
-// Register Chart.js components
-ChartJS.register(
-  CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale, Filler
-);
+ChartJS.register( CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale, Filler );
 
-// Types for centile data (remains the same)
 interface CentilePoint { age: number; [key: string]: number; }
 interface CentileData {
   source: string; name: string; measurementType: string; sex: 'male' | 'female' | 'any';
@@ -31,7 +17,6 @@ interface CentileManifestEntry {
   ageRangeMonths: [number, number]; source: string; type: 'percentiles' | 'z-scores'; dataFile: string;
 }
 
-// Helper to get distinct colors for lines (remains the same)
 const lineColors = [
   'rgb(54, 162, 235)', 'rgb(255, 159, 64)', 'rgb(153, 102, 255)',
   'rgb(201, 203, 207)', 'rgb(255, 205, 86)', 'rgb(75, 192, 75)'
@@ -40,129 +25,91 @@ const lineColors = [
 const ChartViewPage: React.FC = () => {
   const currentPatient = useCurrentPatient();
   const patientRecords = useCurrentPatientRecords();
+  const darkMode = useAppStore((state) => state.settings.darkMode);
 
   const [manifest, setManifest] = useState<CentileManifestEntry[]>([]);
   const [selectedCentileId, setSelectedCentileId] = useState<string>('');
   const [currentCentileData, setCurrentCentileData] = useState<CentileData | null>(null);
   const [chartData, setChartData] = useState<any>({ datasets: [] });
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoadingManifest, setIsLoadingManifest] = useState<boolean>(false);
+  const [isLoadingCentiles, setIsLoadingCentiles] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Filtered manifest based on selected patient's sex (basic example)
   const [filteredManifest, setFilteredManifest] = useState<CentileManifestEntry[]>([]);
 
   useEffect(() => {
     const fetchManifest = async () => {
-      setIsLoading(true);
+      setIsLoadingManifest(true); // Use specific loading state for manifest
       try {
         const response = await fetch('/data/centile_manifest.json');
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data: CentileManifestEntry[] = await response.json();
-        setManifest(data);
-        setError(null);
+        setManifest(data); setError(null);
       } catch (e) {
         console.error("Failed to fetch centile manifest:", e);
-        setError("Failed to load centile selection options.");
-        setManifest([]);
-      } finally {
-        setIsLoading(false);
-      }
+        setError("Failed to load centile selection options."); setManifest([]);
+      } finally { setIsLoadingManifest(false); }
     };
     fetchManifest();
   }, []);
 
   useEffect(() => {
     if (currentPatient && manifest.length > 0) {
-      const newFiltered = manifest.filter(entry =>
-        entry.sex === currentPatient.sex.toLowerCase() || entry.sex === 'any'
-      );
+      const newFiltered = manifest.filter(entry => entry.sex === currentPatient.sex.toLowerCase() || entry.sex === 'any');
       setFilteredManifest(newFiltered);
-      // If current selection is no longer valid or not set, try to pick a default
       if (!newFiltered.find(entry => entry.id === selectedCentileId) && newFiltered.length > 0) {
-        // Basic: pick first compatible one, could be smarter
-        // setSelectedCentileId(newFiltered[0].id);
-      } else if (newFiltered.length === 0) {
-        setSelectedCentileId(''); // No compatible charts
-      }
-
+        // Optionally auto-select: setSelectedCentileId(newFiltered[0].id);
+      } else if (newFiltered.length === 0) { setSelectedCentileId(''); }
     } else if (!currentPatient) {
-      setFilteredManifest(manifest); // Show all if no patient selected
-      setSelectedCentileId(''); // Clear selection if no patient
-      setCurrentCentileData(null);
-    } else {
-      setFilteredManifest(manifest) // If manifest loads after patient, show all initially
-    }
+      setFilteredManifest(manifest); setSelectedCentileId(''); setCurrentCentileData(null);
+    } else { setFilteredManifest(manifest); }
   }, [currentPatient, manifest, selectedCentileId]);
 
-
   useEffect(() => {
-    if (!selectedCentileId) {
-      setCurrentCentileData(null);
-      return;
-    }
-    const selectedEntry = manifest.find(entry => entry.id === selectedCentileId); // Use original manifest for finding
+    if (!selectedCentileId) { setCurrentCentileData(null); return; }
+    const selectedEntry = manifest.find(entry => entry.id === selectedCentileId);
     if (!selectedEntry) return;
-
     const fetchCentileFile = async () => {
-      setIsLoading(true);
+      setIsLoadingCentiles(true); // Use specific loading state for centiles
       try {
         const response = await fetch(selectedEntry.dataFile);
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status} for ${selectedEntry.dataFile}`);
         const data: CentileData = await response.json();
-        setCurrentCentileData(data);
-        setError(null);
+        setCurrentCentileData(data); setError(null);
       } catch (e) {
         console.error(`Failed to fetch centile data for ${selectedEntry.name}:`, e);
-        setError(`Failed to load data for ${selectedEntry.name}.`);
-        setCurrentCentileData(null);
-      } finally {
-        setIsLoading(false);
-      }
+        setError(`Failed to load data for ${selectedEntry.name}.`); setCurrentCentileData(null);
+      } finally { setIsLoadingCentiles(false); }
     };
     fetchCentileFile();
   }, [selectedCentileId, manifest]);
 
-  const updateChartData = useCallback(() => {
+  const [chartOptions, setChartOptions] = useState<any>({});
+
+  const updateChartDataAndOptions = useCallback(() => {
     let patientDataForChart: { x: number; y: number }[] = [];
     let patientLabel = 'Patient Measurements';
 
     if (currentPatient && currentCentileData) {
-      // Filter patient records to match the measurement type of the selected centile chart
       patientDataForChart = patientRecords
         .filter(r => {
-            // Map store measurementType to centileData.measurementType (e.g. 'Length' or 'Height' to 'length_for_age')
             let recordMeasurement = '';
             if (r.measurementType === 'Length' || r.measurementType === 'Height') recordMeasurement = 'length_for_age';
             else if (r.measurementType === 'Weight') recordMeasurement = 'weight_for_age';
-            else if (r.measurementType === 'HeadCircumference') recordMeasurement = 'hc_for_age'; // Assuming this mapping
-            else if (r.measurementType === 'BMI') recordMeasurement = 'bmi_for_age'; // Assuming
-
-            // A more robust mapping might be needed if centile measurementType strings vary more
-            return recordMeasurement === currentCentileData.measurementType ||
-                   r.measurementType.toLowerCase().replace(/\s/g, '_') === currentCentileData.measurementType;
-
+            else if (r.measurementType === 'HeadCircumference') recordMeasurement = 'hc_for_age';
+            else if (r.measurementType === 'BMI') recordMeasurement = 'bmi_for_age';
+            return recordMeasurement === currentCentileData.measurementType || r.measurementType.toLowerCase().replace(/\s/g, '_') === currentCentileData.measurementType;
         })
         .map(r => ({ x: r.ageMonths, y: r.value }))
-        .sort((a,b) => a.x - b.x); // Sort by age
-
+        .sort((a,b) => a.x - b.x);
       patientLabel = `${currentPatient.name} - ${currentCentileData.measurementType.replace(/_/g, ' ')}`;
     } else if (currentPatient && patientRecords.length > 0 && !currentCentileData) {
-        // If no centile chart is selected, but there is a patient with records,
-        // plot all their records of a common type (e.g., weight or height) or just show nothing specific.
-        // For simplicity, we'll just make the patient dataset empty if no centile chart is active to drive the type.
-        // Or, we could default to showing, say, weight.
         patientLabel = `${currentPatient.name} - Select a chart type`;
     }
 
-
     const patientDataset = {
-      label: patientLabel,
-      data: patientDataForChart,
-      borderColor: 'rgb(239, 68, 68)', // Red color for patient
-      backgroundColor: 'rgba(239, 68, 68, 0.5)',
-      tension: 0.1,
-      pointRadius: 5,
-      order: 0,
+      label: patientLabel, data: patientDataForChart,
+      borderColor: 'rgb(239, 68, 68)', backgroundColor: 'rgba(239, 68, 68, 0.5)',
+      tension: 0.1, pointRadius: 5, order: 0,
     };
 
     const centileDatasets = [];
@@ -170,124 +117,107 @@ const ChartViewPage: React.FC = () => {
       const available = currentCentileData.centilesAvailable || [];
       available.forEach((centileKey, index) => {
         centileDatasets.push({
-          label: `${centileKey.toUpperCase()}`, // Simpler label for legend
+          label: `${centileKey.toUpperCase()}`,
           data: currentCentileData.data.map(p => ({ x: p.age, y: p[centileKey] })).sort((a,b) => a.x - b.x),
           borderColor: lineColors[index % lineColors.length],
-          borderDash: [5, 5],
-          tension: 0.1,
-          pointRadius: 2,
-          fill: false,
-          order: index + 1,
+          borderDash: [5, 5], tension: 0.1, pointRadius: 2, fill: false, order: index + 1,
         });
       });
     }
 
     let yAxisLabel = 'Measurement';
-    if (currentCentileData) {
-        yAxisLabel = `${currentCentileData.measurementType.replace(/_/g, ' ')} (${currentCentileData.measurementUnit})`;
-    }
+    if (currentCentileData) { yAxisLabel = `${currentCentileData.measurementType.replace(/_/g, ' ')} (${currentCentileData.measurementUnit})`; }
 
     setChartData({ datasets: [patientDataset, ...centileDatasets] });
 
-    setChartOptions(prevOptions => ({
-        ...prevOptions,
+    const currentTickColor = darkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)';
+    const currentGridColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+    const currentTitleColor = darkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.9)';
+
+    setChartOptions({
+        responsive: true, maintainAspectRatio: false,
         plugins: {
-            ...prevOptions.plugins,
-            title: {
-                display: true,
-                text: currentCentileData ? `${currentCentileData.name}` : (currentPatient ? `${currentPatient.name} - Growth Chart` : 'Growth Chart'),
-            },
+            legend: { position: 'top' as const, labels: { color: currentTitleColor } },
+            title: { display: true, text: currentCentileData ? `${currentCentileData.name}` : (currentPatient ? `${currentPatient.name} - Growth Chart` : 'Growth Chart'), color: currentTitleColor },
+            tooltip: {
+                callbacks: {
+                    label: function(context: any) {
+                        let label = context.dataset.label || '';
+                        if (label) label += ': ';
+                        if (context.parsed.y !== null) {
+                            const unit = currentCentileData?.measurementUnit || (context.datasetIndex === 0 && patientRecords.length > 0 ? patientRecords[0].unit : '');
+                            label += `${context.parsed.y.toFixed(1)} ${unit} at ${context.parsed.x} months`;
+                        }
+                        return label;
+                    }
+                },
+                bodyColor: darkMode ? '#ddd' : '#333', titleColor: darkMode ? '#fff' : '#000',
+                backgroundColor: darkMode ? 'rgba(30,30,30,0.9)' : 'rgba(255,255,255,0.9)',
+                borderColor: darkMode ? 'rgba(200,200,200,0.9)' : 'rgba(0,0,0,0.2)', borderWidth: 1,
+            }
         },
         scales: {
-            ...prevOptions.scales,
-            x: { ...prevOptions.scales.x, title: { display: true, text: `Age (${currentCentileData?.ageUnit || 'Months'})` } },
-            y: { ...prevOptions.scales.y, title: { display: true, text: yAxisLabel } },
+            x: { type: 'linear' as const, title: { display: true, text: `Age (${currentCentileData?.ageUnit || 'Months'})`, color: currentTitleColor }, min: 0, ticks: { color: currentTickColor }, grid: { color: currentGridColor } },
+            y: { title: { display: true, text: yAxisLabel, color: currentTitleColor }, beginAtZero: false, ticks: { color: currentTickColor }, grid: { color: currentGridColor } }
         },
-    }));
+        interaction: { mode: 'index' as const, intersect: false },
+    });
+  }, [currentPatient, patientRecords, currentCentileData, darkMode]);
 
-  }, [currentPatient, patientRecords, currentCentileData]);
-
-  useEffect(() => {
-    updateChartData();
-  }, [updateChartData]);
-
-  const [chartOptions, setChartOptions] = useState<any>({
-    responsive: true, maintainAspectRatio: false,
-    plugins: {
-      legend: { position: 'top' as const }, title: { display: true, text: 'Growth Chart' },
-      tooltip: {
-        callbacks: {
-          label: function(context: any) {
-            let label = context.dataset.label || '';
-            if (label) label += ': ';
-            if (context.parsed.y !== null) {
-              const unit = currentCentileData?.measurementUnit || (context.datasetIndex === 0 && patientRecords.length > 0 ? patientRecords[0].unit : '');
-              label += `${context.parsed.y.toFixed(1)} ${unit} at ${context.parsed.x} months`;
-            }
-            return label;
-          }
-        }
-      }
-    },
-    scales: {
-      x: { type: 'linear' as const, title: { display: true, text: 'Age (Months)' }, min: 0 },
-      y: { title: { display: true, text: 'Measurement' }, beginAtZero: false }
-    },
-    interaction: { mode: 'index' as const, intersect: false },
-  });
+  useEffect(() => { updateChartDataAndOptions(); }, [updateChartDataAndOptions]);
 
   if (!currentPatient) {
     return (
-      <div className="p-4 text-center">
-        <h2 className="text-2xl font-semibold mb-6">Growth Chart View</h2>
-        <p className="text-gray-500">Please select a patient from the "Patient Selection" page to view their growth chart.</p>
+      <div className="p-4 text-center text-gray-800 dark:text-gray-200">
+        <h2 className="text-2xl font-semibold mb-6 text-gray-900 dark:text-white">Growth Chart View</h2>
+        <p className="text-gray-500 dark:text-gray-400">Please select a patient from the "Patient Selection" page to view their growth chart.</p>
       </div>
     );
   }
 
   return (
-    <div className="p-4">
-      <h2 className="text-2xl font-semibold mb-1">Growth Chart for: <span className="text-blue-600">{currentPatient.name}</span></h2>
-      <p className="text-sm text-gray-500 mb-4">Sex: {currentPatient.sex} | DOB: {currentPatient.dob}</p>
+    <div className="p-4 text-gray-800 dark:text-gray-200">
+      <h2 className="text-2xl font-semibold mb-1 text-gray-900 dark:text-white">Growth Chart for: <span className="text-blue-600 dark:text-blue-400">{currentPatient.name}</span></h2>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Sex: {currentPatient.sex} | DOB: {currentPatient.dob}</p>
 
-      <div className="mb-6 p-4 bg-white shadow rounded-lg">
-        <label htmlFor="centileSelect" className="block text-sm font-medium text-gray-700 mb-1">
+      <div className="mb-6 p-4 bg-white dark:bg-gray-700/50 shadow rounded-lg">
+        <label htmlFor="centileSelect" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Select Growth Chart / Centile Set:
         </label>
         <select
           id="centileSelect" value={selectedCentileId}
           onChange={(e) => setSelectedCentileId(e.target.value)}
-          disabled={isLoading || filteredManifest.length === 0}
-          className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md disabled:bg-gray-100"
+          disabled={isLoadingManifest || filteredManifest.length === 0} // Disabled while manifest loads
+          className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md bg-white dark:bg-gray-800 dark:text-gray-200 disabled:opacity-60 dark:disabled:opacity-50"
         >
           <option value="" disabled>
-            {isLoading ? 'Loading options...' : filteredManifest.length === 0 && !error ? `No charts for ${currentPatient.sex || 'selected criteria'}` : 'Select a chart'}
+            {isLoadingManifest ? 'Loading options...' : filteredManifest.length === 0 && !error ? `No charts for ${currentPatient.sex || 'selected criteria'}` : 'Select a chart'}
           </option>
-          {filteredManifest.map(entry => (
-            <option key={entry.id} value={entry.id}>
-              {entry.name} ({entry.source})
-            </option>
-          ))}
+          {filteredManifest.map(entry => ( <option key={entry.id} value={entry.id}> {entry.name} ({entry.source}) </option> ))}
         </select>
-        {error && <p className="text-red-500 text-xs mt-1">{error}</p>}
-        {filteredManifest.length === 0 && !isLoading && manifest.length > 0 && <p className="text-orange-500 text-xs mt-1">No specific charts found for patient's sex. Showing all available or implement more specific filters.</p>}
+        {error && <p className="text-red-500 dark:text-red-400 text-xs mt-1">{error}</p>}
+        {filteredManifest.length === 0 && !isLoadingManifest && manifest.length > 0 && <p className="text-orange-500 dark:text-orange-400 text-xs mt-1">No specific charts found for patient's sex. Showing all available or implement more specific filters.</p>}
       </div>
 
-      {(selectedCentileId && currentCentileData) || patientRecords.length > 0 ? (
-        <div className="bg-white p-2 md:p-6 rounded-lg shadow relative h-[500px] md:h-[600px]">
-          { (isLoading && selectedCentileId) && <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-10"><p>Loading chart data...</p></div> }
-          <Line options={chartOptions} data={chartData} />
-        </div>
-      ) : selectedCentileId && isLoading ? (
-        <div className="text-center p-10">Loading chart data...</div>
-      ) : selectedCentileId && !isLoading && !currentCentileData ? (
-         <div className="text-center p-10 text-red-600">Could not load data for the selected chart.</div>
-      ) : (
-        <div className="text-center p-10 text-gray-500">
-            {patientRecords.length === 0 && "No growth records found for this patient. Add some in the 'Table View'."}
-            {patientRecords.length > 0 && "Please select a chart from the dropdown to view data."}
-        </div>
-      )}
+      <div className="bg-white dark:bg-gray-700/60 p-2 md:p-6 rounded-lg shadow relative h-[500px] md:h-[600px]">
+        { isLoadingCentiles && selectedCentileId && ( // Show spinner overlay only when loading centiles for a selected chart
+          <div className="absolute inset-0 bg-white dark:bg-gray-800 bg-opacity-50 dark:bg-opacity-60 flex flex-col items-center justify-center z-10 rounded-lg">
+            <Spinner size="lg" />
+            <p className="mt-3 text-lg text-gray-700 dark:text-gray-200">Loading chart data...</p>
+          </div>
+        )}
+        { !isLoadingCentiles && ((selectedCentileId && currentCentileData) || patientRecords.length > 0) ? (
+            (chartData.datasets && chartData.datasets.length > 0 && chartOptions.plugins) ? <Line options={chartOptions} data={chartData} /> : <div className="flex items-center justify-center h-full"><p className="text-gray-500 dark:text-gray-400">Chart data is being prepared...</p></div>
+        ) : !selectedCentileId && patientRecords.length > 0 ? (
+            <div className="flex items-center justify-center h-full"><p className="text-gray-500 dark:text-gray-400">Please select a chart from the dropdown to view data.</p></div>
+        ) : patientRecords.length === 0 && !selectedCentileId ? (
+             <div className="flex items-center justify-center h-full"><p className="text-gray-500 dark:text-gray-400">No growth records found for this patient. Add some in the 'Table View'.</p></div>
+        ) : error && selectedCentileId ? ( // If there was an error loading selected centiles
+            <div className="flex items-center justify-center h-full"><p className="text-red-500 dark:text-red-400">{error}</p></div>
+        ) : ( // Default placeholder or if no centile selected and no patient records
+            <div className="flex items-center justify-center h-full"><p className="text-gray-500 dark:text-gray-400">Select a chart to view data.</p></div>
+        )}
+      </div>
     </div>
   );
 };
