@@ -108,7 +108,7 @@ const TableViewPage: React.FC = () => {
                   <select id="newRecordType" value={newRecordType} onChange={handleMeasurementTypeChange} required className={selectFieldClass}>
                     <option value="Weight">Weight</option> <option value="Height">Height (standing)</option>
                     <option value="Length">Length (lying)</option> <option value="HeadCircumference">Head Circumference</option>
-                    <option value="BMI">BMI</option>
+                    <option value="BMI" disabled>BMI (auto-calculated)</option>
                   </select>
                 </div>
                 <div>

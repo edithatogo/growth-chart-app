@@ -102,4 +102,86 @@ describe('Zustand App Store (Actions Logic)', () => {
 
     expect(testStore.getState().getRecordsForPatient('non-existent-id')).toEqual([]);
   });
+
+  describe('Automatic BMI Record Generation', () => {
+    let patientId: string;
+
+    beforeEach(() => {
+      // Create a patient for these tests
+      const patient = testStore.getState().addPatient({ name: 'BMI Test Patient', dob: '2022-01-01', sex: 'Female' });
+      patientId = patient.id;
+    });
+
+    it('should not create BMI record if only weight is present', () => {
+      testStore.getState().addGrowthRecord({ patientId, date: '2023-01-01', ageMonths: 12, measurementType: 'Weight', value: 10, unit: 'kg' });
+      const records = testStore.getState().getRecordsForPatient(patientId);
+      const bmiRecord = records.find(r => r.measurementType === 'BMI');
+      expect(bmiRecord).toBeUndefined();
+    });
+
+    it('should not create BMI record if only height is present', () => {
+      testStore.getState().addGrowthRecord({ patientId, date: '2023-01-01', ageMonths: 12, measurementType: 'Height', value: 75, unit: 'cm' });
+      const records = testStore.getState().getRecordsForPatient(patientId);
+      const bmiRecord = records.find(r => r.measurementType === 'BMI');
+      expect(bmiRecord).toBeUndefined();
+    });
+
+    it('should create a BMI record when both weight and height (or length) are added for the same age', () => {
+      // Add Weight first
+      testStore.getState().addGrowthRecord({ patientId, date: '2023-01-01', ageMonths: 12, measurementType: 'Weight', value: 10, unit: 'kg' });
+      // Add Height for same age
+      testStore.getState().addGrowthRecord({ patientId, date: '2023-01-01', ageMonths: 12, measurementType: 'Height', value: 75, unit: 'cm' });
+
+      const records = testStore.getState().getRecordsForPatient(patientId);
+      const bmiRecord = records.find(r => r.measurementType === 'BMI' && r.ageMonths === 12);
+      expect(bmiRecord).toBeDefined();
+      expect(bmiRecord?.value).toBe(17.8); // 10 / (0.75*0.75) = 17.77... -> 17.8
+      expect(bmiRecord?.unit).toBe('kg/m²');
+      expect(bmiRecord?.date).toBe('2023-01-01'); // Should use date of the triggering record
+    });
+
+    it('should create a BMI record if Height/Length is added first, then Weight', () => {
+      testStore.getState().addGrowthRecord({ patientId, date: '2023-02-01', ageMonths: 13, measurementType: 'Length', value: 78, unit: 'cm' });
+      testStore.getState().addGrowthRecord({ patientId, date: '2023-02-01', ageMonths: 13, measurementType: 'Weight', value: 10.5, unit: 'kg' });
+
+      const records = testStore.getState().getRecordsForPatient(patientId);
+      const bmiRecord = records.find(r => r.measurementType === 'BMI' && r.ageMonths === 13);
+      expect(bmiRecord).toBeDefined();
+      // BMI = 10.5 / (0.78*0.78) = 10.5 / 0.6084 = 17.258... -> 17.3
+      expect(bmiRecord?.value).toBe(17.3);
+    });
+
+    it('should update an existing BMI record if a corresponding weight or height is updated (by adding a new one at same age)', () => {
+      // Initial H, W, and auto-BMI
+      testStore.getState().addGrowthRecord({ patientId, date: '2023-03-01', ageMonths: 14, measurementType: 'Weight', value: 11, unit: 'kg' });
+      testStore.getState().addGrowthRecord({ patientId, date: '2023-03-01', ageMonths: 14, measurementType: 'Height', value: 80, unit: 'cm' }); // BMI = 11 / (0.8*0.8) = 17.1875 -> 17.2
+
+      let records = testStore.getState().getRecordsForPatient(patientId);
+      let bmiRecord = records.find(r => r.measurementType === 'BMI' && r.ageMonths === 14);
+      expect(bmiRecord).toBeDefined();
+      expect(bmiRecord?.value).toBe(17.2);
+
+      // Add a new weight record for the same age (simulating an update)
+      testStore.getState().addGrowthRecord({ patientId, date: '2023-03-05', ageMonths: 14, measurementType: 'Weight', value: 11.5, unit: 'kg' }); // New date, but same ageMonths
+
+      records = testStore.getState().getRecordsForPatient(patientId);
+      bmiRecord = records.find(r => r.measurementType === 'BMI' && r.ageMonths === 14);
+      expect(bmiRecord).toBeDefined();
+      // New BMI = 11.5 / (0.8*0.8) = 11.5 / 0.64 = 17.96875 -> 18.0
+      expect(bmiRecord?.value).toBe(18.0);
+      expect(bmiRecord?.date).toBe('2023-03-05'); // Date should update to the latest triggering record's date
+
+      // Ensure only one BMI record for that age
+      const bmiRecordsForAge = records.filter(r => r.measurementType === 'BMI' && r.ageMonths === 14);
+      expect(bmiRecordsForAge.length).toBe(1);
+    });
+
+    it('should not create BMI if counterpart record has different ageMonths', () => {
+      testStore.getState().addGrowthRecord({ patientId, date: '2023-01-01', ageMonths: 12, measurementType: 'Weight', value: 10, unit: 'kg' });
+      testStore.getState().addGrowthRecord({ patientId, date: '2023-02-01', ageMonths: 13, measurementType: 'Height', value: 78, unit: 'cm' });
+      const records = testStore.getState().getRecordsForPatient(patientId);
+      const bmiRecord = records.find(r => r.measurementType === 'BMI');
+      expect(bmiRecord).toBeUndefined();
+    });
+  });
 });

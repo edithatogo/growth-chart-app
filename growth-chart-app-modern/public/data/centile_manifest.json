@@ -20,5 +20,16 @@
     "source": "CDC",
     "type": "z-scores",
     "dataFile": "/data/centiles/cdc_weight_girls_2_20_z.json"
+  },
+  {
+    "id": "who_bmi_boys_5_19_py",
+    "name": "WHO BMI for Age (Boys, 5-19y, Percentiles)",
+    "description": "World Health Organization BMI-for-age standards for boys aged 5-19 years. Displays P3, P15, P50, P85, P97 and supports Z-score calculation via LMS.",
+    "measurementType": "bmi_for_age",
+    "sex": "male",
+    "ageRangeMonths": [60, 228],
+    "source": "WHO",
+    "type": "percentiles",
+    "dataFile": "/data/centiles/who_bmi_boys_5_19_py.json"
   }
 ]
