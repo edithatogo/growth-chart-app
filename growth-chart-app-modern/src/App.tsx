@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'; // Added useEffect
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import useAppStore from './store/appStore'; // Import the store
+import useAppStore from './store/appStore';
 
 // Import page components
 import DashboardPage from './pages/DashboardPage';
@@ -20,7 +20,31 @@ const App: React.FC = () => {
     } else {
       root.classList.remove('dark');
     }
-  }, [darkMode]); // Rerun effect when darkMode changes
+  }, [darkMode]);
+
+  // Initialize FHIR client on app load
+  const initializeFHIR = useAppStore((state) => state.initializeFHIRClient);
+  const fetchFHIRPatient = useAppStore((state) => state.fetchFHIRPatientData);
+  const fhirContext = useAppStore((state) => state.fhirContext);
+
+  useEffect(() => {
+    // Only initialize if not already attempted or if there was an error previously and we want to retry (e.g. on reload)
+    if (!fhirContext.isRetrieved || fhirContext.error) {
+        initializeFHIR().then(client => {
+            if (client && client.patient?.id) { // Check if client and patient id are available
+                // Successfully initialized and have patient context
+                console.log("FHIR client initialized in App.tsx, attempting to fetch patient data.");
+                fetchFHIRPatient(); // Fetch patient data after client is ready
+            } else if (client) {
+                // Client initialized but no patient context from launch (e.g., practitioner launch)
+                console.log("FHIR client initialized in App.tsx, but no patient context in launch.");
+                // Here, app might show a patient selection screen or other UI
+            }
+            // If client is null, initializeFHIR would have set an error in store or marked as no context found
+        });
+    }
+  }, [initializeFHIR, fetchFHIRPatient, fhirContext.isRetrieved, fhirContext.error]);
+
 
   return (
     <Router>
