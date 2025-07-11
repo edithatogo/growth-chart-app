@@ -2,10 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale, Filler } from 'chart.js';
 import 'chartjs-adapter-date-fns';
-import useAppStore, { useCurrentPatient, useCurrentPatientRecords, GrowthRecord } from '../store/appStore';
+import useAppStore, { useCurrentPatient, useCurrentPatientRecords, GrowthRecord, AppSettings } from '../store/appStore';
 import Spinner from '../components/Spinner';
 import { getZScoreForMeasurement, LMSDataPoint } from '../utils/zScoreCalculator';
 import { generateVelocityDataSeries, VelocityDataPoint } from '../utils/calculations';
+import { convertWeightForDisplay, convertHeightForDisplay, WeightUnit, HeightUnit, DisplayUnits, convertToMetricForCalc } from '../utils/units';
+
 
 ChartJS.register( CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale, Filler );
 
@@ -28,12 +30,15 @@ const lineColors = [
   'rgb(54, 162, 235)', 'rgb(255, 159, 64)', 'rgb(153, 102, 255)',
   'rgb(201, 203, 207)', 'rgb(255, 205, 86)', 'rgb(75, 192, 75)'
 ];
-const velocityLineColor = 'rgb(255, 99, 71)'; // Tomato color for velocity
+const velocityLineColor = 'rgb(255, 99, 71)';
 
 const ChartViewPage: React.FC = () => {
   const currentPatient = useCurrentPatient();
   const patientRecords = useCurrentPatientRecords();
-  const darkMode = useAppStore((state) => state.settings.darkMode);
+  const appSettings = useAppStore((state) => state.settings);
+  const darkMode = appSettings.darkMode;
+  const displayUnitSystem = appSettings.units;
+
 
   const [manifest, setManifest] = useState<CentileManifestEntry[]>([]);
   const [selectedCentileId, setSelectedCentileId] = useState<string>('');
@@ -46,7 +51,7 @@ const ChartViewPage: React.FC = () => {
   const [velocitySeries, setVelocitySeries] = useState<VelocityDataPoint[]>([]);
   const [chartOptions, setChartOptions] = useState<any>({});
 
-  useEffect(() => { /* ... manifest fetching ... */
+  useEffect(() => {
     const fetchManifest = async () => {
       setIsLoadingManifest(true);
       try {
@@ -62,19 +67,18 @@ const ChartViewPage: React.FC = () => {
     fetchManifest();
   }, []);
 
-  useEffect(() => { /* ... filteredManifest update ... */
+  useEffect(() => {
     if (currentPatient && manifest.length > 0) {
       const newFiltered = manifest.filter(entry => entry.sex === currentPatient.sex.toLowerCase() || entry.sex === 'any');
       setFilteredManifest(newFiltered);
       if (!newFiltered.find(entry => entry.id === selectedCentileId) && newFiltered.length > 0) {
-        // Auto-select logic can be added here if desired
       } else if (newFiltered.length === 0) { setSelectedCentileId(''); }
     } else if (!currentPatient) {
       setFilteredManifest(manifest); setSelectedCentileId(''); setCurrentCentileData(null);
     } else { setFilteredManifest(manifest); }
   }, [currentPatient, manifest, selectedCentileId]);
 
-  useEffect(() => { /* ... currentCentileData fetching ... */
+  useEffect(() => {
     if (!selectedCentileId) { setCurrentCentileData(null); return; }
     const selectedEntry = manifest.find(entry => entry.id === selectedCentileId);
     if (!selectedEntry) return;
@@ -94,11 +98,10 @@ const ChartViewPage: React.FC = () => {
   }, [selectedCentileId, manifest]);
 
   const updateChartDataAndOptions = useCallback(() => {
-    let patientDataForChart: { x: number; y: number; zScore?: number }[] = [];
+    let patientDataForChart: { x: number; y: number; zScore?: number; originalUnit: GrowthRecord['unit'] }[] = [];
     let patientLabel = 'Patient Measurements';
     let calculatedVelocitySeries: VelocityDataPoint[] = [];
-
-    const datasets = []; // Start with an empty array for datasets
+    const datasets = [];
 
     if (currentPatient && currentCentileData) {
       const hasLMS = currentCentileData.lmsParametersAvailable &&
@@ -119,16 +122,26 @@ const ChartViewPage: React.FC = () => {
       patientDataForChart = relevantPatientRecords
         .map(r => {
           let zScoreVal: number | undefined = undefined;
-          if (hasLMS && currentCentileData.data) {
+          // Convert value to metric for Z-score calculation, as LMS params are metric-based
+          const metricValueForZScore = convertToMetricForCalc(r.value, r.unit as GrowthRecord['unit']);
+
+          if (hasLMS && currentCentileData.data && !isNaN(metricValueForZScore)) {
             const lmsReferenceData = currentCentileData.data as LMSDataPoint[];
-            zScoreVal = getZScoreForMeasurement(r.value, r.ageMonths, lmsReferenceData);
+            zScoreVal = getZScoreForMeasurement(metricValueForZScore, r.ageMonths, lmsReferenceData);
           }
-          return { x: r.ageMonths, y: r.value, zScore: zScoreVal };
+          // Store original value (y) and originalUnit for plotting and display conversion
+          return { x: r.ageMonths, y: r.value, zScore: zScoreVal, originalUnit: r.unit };
         })
         .sort((a,b) => a.x - b.x);
 
       if (currentCentileData.measurementType === 'length_for_age' || currentCentileData.measurementType === 'weight_for_age') {
-        calculatedVelocitySeries = generateVelocityDataSeries(relevantPatientRecords);
+        // Convert records to metric before calculating velocity for consistent velocity unit (e.g. cm/year, kg/year)
+        const metricRecordsForVelocity = relevantPatientRecords.map(rec => ({
+            ...rec, // Spread original record
+            value: convertToMetricForCalc(rec.value, rec.unit as GrowthRecord['unit']), // Convert value to metric
+            unit: (rec.unit === 'kg' || rec.unit === 'lbs') ? 'kg' : 'cm', // Standardize unit to metric for velocity calc
+        }));
+        calculatedVelocitySeries = generateVelocityDataSeries(metricRecordsForVelocity);
       }
       setVelocitySeries(calculatedVelocitySeries);
       patientLabel = `${currentPatient.name} - ${currentCentileData.measurementType.replace(/_/g, ' ')}`;
@@ -140,16 +153,13 @@ const ChartViewPage: React.FC = () => {
         setVelocitySeries([]);
     }
 
-    // Patient's absolute measurement dataset
     const patientDataset = {
       label: patientLabel, data: patientDataForChart,
       borderColor: 'rgb(239, 68, 68)', backgroundColor: 'rgba(239, 68, 68, 0.5)',
-      tension: 0.1, pointRadius: 5, order: 0,
-      yAxisID: 'yPrimary', // Assign to primary Y-axis
+      tension: 0.1, pointRadius: 5, order: 0, yAxisID: 'yPrimary',
     };
     datasets.push(patientDataset);
 
-    // Centile datasets
     if (currentCentileData) {
       const available = currentCentileData.centilesAvailable || [];
       available.forEach((centileKey, index) => {
@@ -157,41 +167,41 @@ const ChartViewPage: React.FC = () => {
           label: `${centileKey.toUpperCase()}`,
           data: currentCentileData.data.map(p => ({ x: p.age, y: p[centileKey] })).sort((a,b) => a.x - b.x),
           borderColor: lineColors[index % lineColors.length],
-          borderDash: [5, 5], tension: 0.1, pointRadius: 2, fill: false, order: index + 1,
-          yAxisID: 'yPrimary', // Assign to primary Y-axis
+          borderDash: [5, 5], tension: 0.1, pointRadius: 2, fill: false, order: index + 1, yAxisID: 'yPrimary',
         });
       });
     }
 
-    // Patient's velocity dataset (if data exists)
     let velocityYAxisLabel = 'Velocity';
     if (velocitySeries.length > 0) {
-        velocityYAxisLabel = `Velocity (${velocitySeries[0].velocityUnit})`;
+        // Velocity is calculated based on metric, so unit is metric/year
+        const velUnit = velocitySeries[0].velocityUnit.startsWith('kg') ? 'kg/year' : 'cm/year';
+        velocityYAxisLabel = `Velocity (${velUnit})`;
         datasets.push({
-            label: `${currentPatient?.name || 'Patient'} - Velocity (${velocitySeries[0].velocityUnit})`,
+            label: `${currentPatient?.name || 'Patient'} - Velocity (${velUnit})`,
             data: velocitySeries.map(v => ({ x: v.ageMonthsMidPoint, y: v.velocity })),
-            borderColor: velocityLineColor,
-            backgroundColor: 'rgba(255, 99, 71, 0.3)',
-            tension: 0.1,
-            pointRadius: 4,
-            borderWidth: 2,
-            yAxisID: 'yVelocity', // Assign to secondary Y-axis
-            order: -1 // Draw velocity behind main patient data for clarity
+            borderColor: velocityLineColor, backgroundColor: 'rgba(255, 99, 71, 0.3)',
+            tension: 0.1, pointRadius: 4, borderWidth: 2, yAxisID: 'yVelocity', order: -1
         });
     }
-
     setChartData({ datasets });
 
-    // Define Colors based on dark mode
     const currentTickColor = darkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)';
     const currentGridColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
     const currentTitleColor = darkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.9)';
-
     let yPrimaryLabel = 'Measurement';
-    if (currentCentileData) { yPrimaryLabel = `${currentCentileData.measurementType.replace(/_/g, ' ')} (${currentCentileData.measurementUnit})`; }
+    if (currentCentileData) {
+        // For primary Y axis label, use the display unit system
+        if (displayUnitSystem === 'Imperial') {
+            if (currentCentileData.measurementUnit === 'cm') yPrimaryLabel = `${currentCentileData.measurementType.replace(/_/g, ' ')} (in)`;
+            else if (currentCentileData.measurementUnit === 'kg') yPrimaryLabel = `${currentCentileData.measurementType.replace(/_/g, ' ')} (lbs)`;
+            else yPrimaryLabel = `${currentCentileData.measurementType.replace(/_/g, ' ')} (${currentCentileData.measurementUnit})`; // BMI or other
+        } else {
+             yPrimaryLabel = `${currentCentileData.measurementType.replace(/_/g, ' ')} (${currentCentileData.measurementUnit})`;
+        }
+    }
 
 
-    // Define Chart Options, including secondary Y-axis for velocity
     const options: any = {
         responsive: true, maintainAspectRatio: false,
         plugins: {
@@ -200,22 +210,50 @@ const ChartViewPage: React.FC = () => {
             tooltip: {
                 callbacks: {
                     label: function(context: any) {
-                        let label = context.dataset.label || '';
-                        if (label) label += ': ';
+                        let tooltipLabel = context.dataset.label || '';
+                        if (tooltipLabel) tooltipLabel += ': ';
                         if (context.parsed.y !== null) {
-                            let unit = '';
-                            if (context.dataset.yAxisID === 'yVelocity' && velocitySeries.length > 0) {
-                                unit = velocitySeries[0].velocityUnit;
-                                label += `${context.parsed.y.toFixed(1)} ${unit} at ${context.parsed.x.toFixed(1)} months (midpoint)`;
-                            } else {
-                                unit = currentCentileData?.measurementUnit || (context.datasetIndex === 0 && patientRecords.length > 0 ? patientRecords[0].unit : '');
-                                label += `${context.parsed.y.toFixed(1)} ${unit} at ${context.parsed.x.toFixed(1)} months`;
-                                if (context.datasetIndex === 0 && context.raw?.zScore !== undefined && !isNaN(context.raw.zScore)) {
-                                    label += ` (Z: ${context.raw.zScore.toFixed(2)})`;
+                            let displayValue = context.parsed.y;
+                            let displayUnitLabel = '';
+                            const pointData = context.raw as any;
+
+                            if (context.dataset.yAxisID === 'yVelocity') {
+                                const vPoint = velocitySeries.find(v => v.ageMonthsMidPoint.toFixed(1) === pointData.x.toFixed(1) && v.velocity.toFixed(1) === pointData.y.toFixed(1));
+                                displayUnitLabel = vPoint?.velocityUnit || (velocitySeries.length > 0 ? velocitySeries[0].velocityUnit : '');
+                                tooltipLabel += `${displayValue.toFixed(1)} ${displayUnitLabel} at ${context.parsed.x.toFixed(1)} months (midpoint)`;
+                            } else if (context.datasetIndex === 0 && pointData?.originalUnit) {
+                                const rawValue = pointData.y;
+                                const originalUnit = pointData.originalUnit as GrowthRecord['unit'];
+
+                                if (originalUnit === 'kg' || originalUnit === 'lbs') {
+                                    const converted = convertWeightForDisplay(rawValue, originalUnit as WeightUnit, displayUnitSystem);
+                                    displayValue = converted.value; displayUnitLabel = converted.unit;
+                                } else if (originalUnit === 'cm' || originalUnit === 'in') {
+                                    const converted = convertHeightForDisplay(rawValue, originalUnit as HeightUnit, displayUnitSystem);
+                                    displayValue = converted.value; displayUnitLabel = converted.unit;
+                                } else if (originalUnit === 'kg/m²') {
+                                    displayValue = rawValue; displayUnitLabel = 'kg/m²';
+                                } else {
+                                    displayValue = rawValue; displayUnitLabel = currentCentileData?.measurementUnit || '';
                                 }
+                                tooltipLabel += `${displayValue.toFixed(1)} ${displayUnitLabel} at ${context.parsed.x.toFixed(1)} months`;
+                                if (pointData.zScore !== undefined && !isNaN(pointData.zScore)) {
+                                    tooltipLabel += ` (Z: ${pointData.zScore.toFixed(2)})`;
+                                }
+                            } else { // Centile lines
+                                displayUnitLabel = currentCentileData?.measurementUnit || '';
+                                // Centile data is always metric, convert for display if needed
+                                if (displayUnitSystem === 'Imperial') {
+                                    if (displayUnitLabel === 'cm') {
+                                        displayValue = cmToInches(displayValue); displayUnitLabel = 'in';
+                                    } else if (displayUnitLabel === 'kg') {
+                                        displayValue = kgToLbs(displayValue); displayUnitLabel = 'lbs';
+                                    }
+                                }
+                                tooltipLabel += `${displayValue.toFixed(1)} ${displayUnitLabel} at ${context.parsed.x.toFixed(1)} months`;
                             }
                         }
-                        return label;
+                        return tooltipLabel;
                     }
                 },
                 bodyColor: darkMode ? '#ddd' : '#333', titleColor: darkMode ? '#fff' : '#000',
@@ -224,42 +262,26 @@ const ChartViewPage: React.FC = () => {
             }
         },
         scales: {
-            x: {
-                type: 'linear' as const,
-                title: { display: true, text: `Age (${currentCentileData?.ageUnit || 'Months'})`, color: currentTitleColor },
-                min: 0,
-                ticks: { color: currentTickColor },
-                grid: { color: currentGridColor }
-            },
-            yPrimary: { // Primary Y-axis for measurements and centiles
-                type: 'linear' as const,
-                position: 'left' as const,
-                title: { display: true, text: yPrimaryLabel, color: currentTitleColor },
-                beginAtZero: false,
-                ticks: { color: currentTickColor },
-                grid: { color: currentGridColor }
-            }
+            x: { type: 'linear' as const, title: { display: true, text: `Age (${currentCentileData?.ageUnit || 'Months'})`, color: currentTitleColor }, min: 0, ticks: { color: currentTickColor }, grid: { color: currentGridColor } },
+            yPrimary: { type: 'linear' as const, position: 'left' as const, title: { display: true, text: yPrimaryLabel, color: currentTitleColor }, beginAtZero: false, ticks: { color: currentTickColor }, grid: { color: currentGridColor } }
         },
         interaction: { mode: 'index' as const, intersect: false, axis: 'x' as const },
     };
 
     if (velocitySeries.length > 0) {
-        options.scales.yVelocity = { // Secondary Y-axis for velocity
-            type: 'linear' as const,
-            position: 'right' as const,
+        options.scales.yVelocity = {
+            type: 'linear' as const, position: 'right' as const,
             title: { display: true, text: velocityYAxisLabel, color: currentTitleColor },
             ticks: { color: currentTickColor },
-            grid: { drawOnChartArea: false, color: currentGridColor }, // Only show grid lines for primary axis or style differently
-            // beginAtZero: true, // Velocity can be negative
+            grid: { drawOnChartArea: false, color: currentGridColor },
         };
     }
     setChartOptions(options);
 
-  }, [currentPatient, patientRecords, currentCentileData, darkMode, velocitySeries]); // Added velocitySeries to dependency array
+  }, [currentPatient, patientRecords, currentCentileData, darkMode, velocitySeries, displayUnitSystem]);
 
   useEffect(() => { updateChartDataAndOptions(); }, [updateChartDataAndOptions]);
 
-  // ... rest of the component (return statement) remains the same
   if (!currentPatient) {
     return (
       <div className="p-4 text-center text-gray-800 dark:text-gray-200">
@@ -272,7 +294,7 @@ const ChartViewPage: React.FC = () => {
   return (
     <div className="p-4 text-gray-800 dark:text-gray-200">
       <h2 className="text-2xl font-semibold mb-1 text-gray-900 dark:text-white">Growth Chart for: <span className="text-blue-600 dark:text-blue-400">{currentPatient.name}</span></h2>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Sex: {currentPatient.sex} | DOB: {currentPatient.dob}</p>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Sex: {currentPatient.sex} | DOB: {currentPatient.dob} | Displaying Units: <span className="font-semibold">{displayUnitSystem}</span></p>
 
       <div className="mb-6 p-4 bg-white dark:bg-gray-700/50 shadow rounded-lg">
         <label htmlFor="centileSelect" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

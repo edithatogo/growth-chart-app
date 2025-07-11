@@ -1,9 +1,10 @@
 import { create, StateCreator } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
-import { calculateBMI } from '../utils/calculations'; // Import BMI calculator
+import { calculateBMI } from '../utils/calculations';
+import { convertToMetricForCalc } from '../utils/units'; // Import metric converter
 
-// Interfaces (Patient, GrowthRecord, AppSettings, etc. remain the same)
+
 export interface Patient {
   id: string;
   name: string;
@@ -20,7 +21,7 @@ export interface GrowthRecord {
   ageMonths: number;
   measurementType: 'Weight' | 'Height' | 'Length' | 'HeadCircumference' | 'BMI';
   value: number;
-  unit: 'kg' | 'lbs' | 'cm' | 'in' | 'kg/m²'; // Added 'lbs', 'in' for potential future use
+  unit: 'kg' | 'lbs' | 'cm' | 'in' | 'kg/m²';
   notes?: string;
 }
 
@@ -45,8 +46,8 @@ export interface AppStateValues {
 export interface AppStateActions {
   addPatient: (patientData: Omit<Patient, 'id'>) => Patient;
   selectPatient: (patientId: string | null) => void;
-  addGrowthRecord: (recordData: NewGrowthRecordData) => GrowthRecord; // This will now trigger BMI calc
-  _addOrUpdateBMIRecordInternal: (patientId: string, ageMonths: number, date: string, bmiValue: number) => void; // Internal helper
+  addGrowthRecord: (recordData: NewGrowthRecordData) => GrowthRecord;
+  _addOrUpdateBMIRecordInternal: (patientId: string, ageMonths: number, date: string, bmiValue: number) => void;
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   getPatientById: (patientId: string) => Patient | undefined;
   getRecordsForPatient: (patientId: string) => GrowthRecord[];
@@ -59,7 +60,7 @@ export const initialAppState: AppStateValues = {
   growthRecords: [],
   settings: {
     defaultChartType: 'WeightForAge',
-    units: 'Metric', // Default to Metric
+    units: 'Metric',
     darkMode: false,
     language: 'English',
     notifications: {
@@ -87,24 +88,15 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
       );
       let newGrowthRecords = [...state.growthRecords];
       if (existingBMIRecordIndex > -1) {
-        // Update existing BMI record
         const updatedRecord = {
           ...newGrowthRecords[existingBMIRecordIndex],
-          value: bmiValue,
-          date: date, // Update date too, in case H/W were on slightly different dates but same age rounded
-          unit: 'kg/m²' as 'kg/m²', // Explicitly type
+          value: bmiValue, date: date, unit: 'kg/m²' as 'kg/m²',
         };
         newGrowthRecords[existingBMIRecordIndex] = updatedRecord;
       } else {
-        // Add new BMI record
         const bmiRecord: GrowthRecord = {
-          id: uuidv4(),
-          patientId,
-          ageMonths,
-          date,
-          measurementType: 'BMI',
-          value: bmiValue,
-          unit: 'kg/m²',
+          id: uuidv4(), patientId, ageMonths, date,
+          measurementType: 'BMI', value: bmiValue, unit: 'kg/m²',
         };
         newGrowthRecords.push(bmiRecord);
       }
@@ -117,50 +109,73 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
         console.error("Attempted to add growth record without patientId", recordData);
         throw new Error("patientId is required to add a growth record.");
     }
-    // Ensure units are metric for internal calculation, assuming UI converts if necessary
-    // For simplicity, this example assumes recordData.value is already in kg or cm.
-    // A real app would check recordData.unit and convert if settings.units is Imperial.
 
     const newRecord = { ...recordData, id: uuidv4() };
     set((state) => ({ growthRecords: [...state.growthRecords, newRecord] }));
 
-    // --- Automatic BMI calculation ---
     if (newRecord.measurementType === 'Weight' || newRecord.measurementType === 'Height' || newRecord.measurementType === 'Length') {
-      const { growthRecords, settings, _addOrUpdateBMIRecordInternal } = get();
+      const { growthRecords, _addOrUpdateBMIRecordInternal } = get();
       const patientId = newRecord.patientId;
       const ageMonths = newRecord.ageMonths;
+      let recordDate = newRecord.date;
 
-      let weightInKg: number | undefined;
-      let heightInCm: number | undefined;
-      let recordDate = newRecord.date; // Use date of the triggering record
+      let weightRecordForBMI: GrowthRecord | undefined;
+      let heightRecordForBMI: GrowthRecord | undefined;
 
       if (newRecord.measurementType === 'Weight') {
-        weightInKg = newRecord.value; // Assuming it's in kg as per current simplified unit handling
-        const heightRecord = growthRecords.find(
-          (r) => r.patientId === patientId && r.ageMonths === ageMonths && (r.measurementType === 'Height' || r.measurementType === 'Length')
+        weightRecordForBMI = newRecord;
+        // Find a corresponding height/length record, ensuring it's not the same record if multiple weights were added at the same age.
+        heightRecordForBMI = growthRecords.find(
+          (r) => r.patientId === patientId && r.ageMonths === ageMonths &&
+                 (r.measurementType === 'Height' || r.measurementType === 'Length') &&
+                 r.id !== newRecord.id
         );
-        if (heightRecord) heightInCm = heightRecord.value; // Assuming cm
-      } else { // Height or Length
-        heightInCm = newRecord.value; // Assuming cm
-        const weightRecord = growthRecords.find(
-          (r) => r.patientId === patientId && r.ageMonths === ageMonths && r.measurementType === 'Weight'
+         // If newRecord is weight, and we found a height, we can use newRecord's date.
+         // If newRecord is weight, and we didn't find height yet, try finding an existing height.
+         if (!heightRecordForBMI) {
+            heightRecordForBMI = growthRecords.find(
+                (r) => r.patientId === patientId && r.ageMonths === ageMonths &&
+                       (r.measurementType === 'Height' || r.measurementType === 'Length')
+            );
+         }
+
+
+      } else { // newRecord is Height or Length
+        heightRecordForBMI = newRecord;
+        weightRecordForBMI = growthRecords.find(
+          (r) => r.patientId === patientId && r.ageMonths === ageMonths &&
+                 r.measurementType === 'Weight' &&
+                 r.id !== newRecord.id
         );
-        if (weightRecord) weightInKg = weightRecord.value; // Assuming kg
+        if (!weightRecordForBMI) {
+            weightRecordForBMI = growthRecords.find(
+                (r) => r.patientId === patientId && r.ageMonths === ageMonths &&
+                       r.measurementType === 'Weight'
+            );
+        }
       }
 
-      if (weightInKg !== undefined && heightInCm !== undefined) {
-        // TODO: Add unit conversion if store supports imperial units based on settings.units
-        // For now, assuming inputs to calculateBMI are always kg and cm.
-        // If settings.units === 'Imperial', convert lbs to kg and inches to cm before calculating.
-        // Example: if (newRecord.unit === 'lbs') weightInKg = newRecord.value * 0.453592;
-        //          if (newRecord.unit === 'in') heightInCm = newRecord.value * 2.54;
-        // And do similarly for the found counterpart record.
-        // This example assumes metric storage or that conversion happened before addGrowthRecord.
+      // Determine the most recent date if both records exist
+      if (weightRecordForBMI && heightRecordForBMI) {
+          if (new Date(weightRecordForBMI.date) > new Date(heightRecordForBMI.date)) {
+              recordDate = weightRecordForBMI.date;
+          } else {
+              recordDate = heightRecordForBMI.date;
+          }
+          // If newRecord is one of them, its date is already considered.
+          if(newRecord.id === weightRecordForBMI.id || newRecord.id === heightRecordForBMI.id) {
+            recordDate = newRecord.date;
+          }
 
-        const bmi = calculateBMI(weightInKg, heightInCm);
-        if (!isNaN(bmi)) {
-            // Use the internal action to add/update BMI to prevent recursive calls
-            _addOrUpdateBMIRecordInternal(patientId, ageMonths, recordDate, bmi);
+
+        const weightInKg = convertToMetricForCalc(weightRecordForBMI.value, weightRecordForBMI.unit as GrowthRecord['unit']);
+        const heightInCm = convertToMetricForCalc(heightRecordForBMI.value, heightRecordForBMI.unit as GrowthRecord['unit']);
+
+        if (!isNaN(weightInKg) && !isNaN(heightInCm) && heightInCm > 0) { // Ensure height is positive for BMI calc
+            const bmi = calculateBMI(weightInKg, heightInCm);
+            if (!isNaN(bmi)) {
+                _addOrUpdateBMIRecordInternal(patientId, ageMonths, recordDate, bmi);
+            }
         }
       }
     }
