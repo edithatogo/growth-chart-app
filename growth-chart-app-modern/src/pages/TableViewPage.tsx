@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // Added useEffect
 import useAppStore, { GrowthRecord, NewGrowthRecordData, useCurrentPatient, useCurrentPatientRecords } from '../store/appStore';
-import { PlusCircleIcon, XCircleIcon } from '@heroicons/react/24/outline'; // For buttons
+import { PlusCircleIcon, XCircleIcon, TrashIcon } from '@heroicons/react/24/outline'; // Added TrashIcon
 
 const TableViewPage: React.FC = () => {
   const currentPatient = useCurrentPatient();
   const recordsToDisplay = useCurrentPatientRecords();
   const addGrowthRecord = useAppStore((state) => state.addGrowthRecord);
+  const deleteGrowthRecordAction = useAppStore((state) => state.deleteGrowthRecord); // Get delete action
   const displayUnitSystem = useAppStore((state) => state.settings.units); // Get global unit setting
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -273,6 +274,14 @@ const TableViewPage: React.FC = () => {
     }
   };
 
+  const handleDeleteRecord = (recordId: string, recordType: string, recordDate: string) => {
+    if (window.confirm(`Are you sure you want to delete the ${recordType} record from ${recordDate}? This action cannot be undone.`)) {
+      deleteGrowthRecordAction(recordId);
+      // Note: If this deleted a H/W record, the store action also deletes associated BMI.
+      // The view will re-render due to store change.
+    }
+  };
+
   const inputFieldClass = "mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white dark:bg-gray-800 dark:text-gray-200 disabled:opacity-70 dark:disabled:opacity-50";
   const selectFieldClass = "mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md bg-white dark:bg-gray-800 dark:text-gray-200 disabled:opacity-70 dark:disabled:opacity-50";
   const labelClass = "block text-sm font-medium text-gray-600 dark:text-gray-300";
@@ -427,9 +436,21 @@ const TableViewPage: React.FC = () => {
                   <td className="px-5 py-4 text-sm text-gray-700 dark:text-gray-200">{record.value}</td>
                   <td className="px-5 py-4 text-sm text-gray-700 dark:text-gray-200">{record.unit}</td>
                   <td className="px-5 py-4 text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap max-w-xs truncate" title={record.notes}>{record.notes || 'N/A'}</td>
-                  <td className="px-5 py-4 text-sm">
-                    <button className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 mr-2 text-xs" onClick={() => alert(`Edit record ${record.id} - TBD`)}>Edit</button>
-                    <button className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 text-xs" onClick={() => alert(`Delete record ${record.id} - TBD`)}>Delete</button>
+                  <td className="px-5 py-4 text-sm whitespace-nowrap">
+                    <button
+                        className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 mr-3 text-xs"
+                        onClick={() => alert(`Edit record ${record.id} - TBD`)}
+                        aria-label={`Edit record from ${record.date} for ${record.measurementType}`}
+                    >
+                        Edit
+                    </button>
+                    <button
+                        className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 text-xs inline-flex items-center"
+                        onClick={() => handleDeleteRecord(record.id, record.measurementType, record.date)}
+                        aria-label={`Delete record from ${record.date} for ${record.measurementType}`}
+                    >
+                        <TrashIcon className="h-4 w-4 mr-1" /> Delete
+                    </button>
                   </td>
                 </tr>
               ))}

@@ -148,6 +148,89 @@ describe('Zustand App Store (Actions Logic)', () => {
     expect(bmiRecord).toBeUndefined(); // BMI should not be auto-calculated with 'Other' type present
   });
 
+  // Tests for Update and Delete actions
+  it('should update an existing patient', () => {
+    const patient = testStore.getState().addPatient({ name: 'Original Name', dob: '2022-01-01', sex: 'Male', condition: 'Initial Condition' });
+    const updatedData: Patient = { ...patient, name: 'Updated Name', condition: 'Updated Condition' };
+
+    testStore.getState().updatePatient(updatedData);
+
+    const fetchedPatient = testStore.getState().getPatientById(patient.id);
+    expect(fetchedPatient?.name).toBe('Updated Name');
+    expect(fetchedPatient?.condition).toBe('Updated Condition');
+    expect(fetchedPatient?.dob).toBe('2022-01-01'); // Unchanged field
+  });
+
+  it('should delete a patient and their associated records', () => {
+    const patient = testStore.getState().addPatient({ name: 'To Be Deleted', dob: '2022-01-01', sex: 'Female' });
+    testStore.getState().addGrowthRecord({ patientId: patient.id, date: '2022-02-01', ageMonths: 1, measurementType: 'Weight', value: 5, unit: 'kg' });
+    testStore.getState().addGrowthRecord({ patientId: 'other-patient', date: '2022-02-01', ageMonths: 1, measurementType: 'Weight', value: 6, unit: 'kg' });
+
+    testStore.getState().selectPatient(patient.id); // Select the patient to test selection clearing
+    expect(testStore.getState().selectedPatientId).toBe(patient.id);
+
+    testStore.getState().deletePatient(patient.id);
+
+    expect(testStore.getState().getPatientById(patient.id)).toBeUndefined();
+    expect(testStore.getState().getRecordsForPatient(patient.id).length).toBe(0);
+    expect(testStore.getState().growthRecords.length).toBe(1); // Only other patient's record should remain
+    expect(testStore.getState().selectedPatientId).toBeNull(); // Selection should be cleared
+  });
+
+  it('should update an existing growth record', () => {
+    const patient = testStore.getState().addPatient({ name: 'Patient For Record Update', dob: '2022-01-01', sex: 'Male' });
+    const record = testStore.getState().addGrowthRecord({
+        patientId: patient.id, date: '2022-02-01', ageMonths: 1,
+        measurementType: 'Weight', value: 5, unit: 'kg', notes: 'Initial note'
+    });
+
+    const updatedRecordData: GrowthRecord = { ...record, value: 5.2, notes: 'Updated note' };
+    testStore.getState().updateGrowthRecord(updatedRecordData);
+
+    const fetchedRecord = testStore.getState().growthRecords.find(r => r.id === record.id);
+    expect(fetchedRecord?.value).toBe(5.2);
+    expect(fetchedRecord?.notes).toBe('Updated note');
+    expect(fetchedRecord?.unit).toBe('kg'); // Unchanged field
+  });
+
+  it('should delete a growth record and its associated BMI record', () => {
+    const patient = testStore.getState().addPatient({ name: 'Patient For BMI Deletion Test', dob: '2022-01-01', sex: 'Male' });
+    // Add H & W to trigger BMI
+    testStore.getState().addGrowthRecord({ patientId: patient.id, date: '2022-02-01', ageMonths: 1, measurementType: 'Weight', value: 5, unit: 'kg' });
+    const heightRecord = testStore.getState().addGrowthRecord({ patientId: patient.id, date: '2022-02-01', ageMonths: 1, measurementType: 'Height', value: 55, unit: 'cm' });
+
+    let records = testStore.getState().getRecordsForPatient(patient.id);
+    expect(records.find(r => r.measurementType === 'BMI' && r.ageMonths === 1)).toBeDefined();
+
+    // Delete the height record
+    testStore.getState().deleteGrowthRecord(heightRecord.id);
+
+    records = testStore.getState().getRecordsForPatient(patient.id);
+    expect(records.find(r => r.id === heightRecord.id)).toBeUndefined(); // Height record gone
+    expect(records.find(r => r.measurementType === 'BMI' && r.ageMonths === 1)).toBeUndefined(); // BMI record also gone
+    expect(records.find(r => r.measurementType === 'Weight' && r.ageMonths === 1)).toBeDefined(); // Weight record should still be there
+  });
+
+  it('should delete a non-H/W/L growth record without affecting other BMI records', () => {
+    const patient = testStore.getState().addPatient({ name: 'Patient For HC Deletion Test', dob: '2022-01-01', sex: 'Male' });
+    // Add H & W to trigger BMI
+    testStore.getState().addGrowthRecord({ patientId: patient.id, date: '2022-02-01', ageMonths: 1, measurementType: 'Weight', value: 5, unit: 'kg' });
+    testStore.getState().addGrowthRecord({ patientId: patient.id, date: '2022-02-01', ageMonths: 1, measurementType: 'Height', value: 55, unit: 'cm' });
+    const hcRecord = testStore.getState().addGrowthRecord({ patientId: patient.id, date: '2022-02-01', ageMonths: 1, measurementType: 'HeadCircumference', value: 35, unit: 'cm' });
+
+    let records = testStore.getState().getRecordsForPatient(patient.id);
+    const initialBmiRecord = records.find(r => r.measurementType === 'BMI' && r.ageMonths === 1);
+    expect(initialBmiRecord).toBeDefined();
+
+    // Delete the HC record
+    testStore.getState().deleteGrowthRecord(hcRecord.id);
+
+    records = testStore.getState().getRecordsForPatient(patient.id);
+    expect(records.find(r => r.id === hcRecord.id)).toBeUndefined(); // HC record gone
+    // BMI record should still be there as HC deletion doesn't affect it
+    expect(records.find(r => r.id === initialBmiRecord?.id)).toEqual(initialBmiRecord);
+  });
+
 
   describe('Automatic BMI Record Generation', () => {
     let patientId: string;

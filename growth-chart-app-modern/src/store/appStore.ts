@@ -55,6 +55,12 @@ export interface AppStateActions {
   updateSettings: (newSettings: Partial<AppSettings>) => void;
   getPatientById: (patientId: string) => Patient | undefined;
   getRecordsForPatient: (patientId: string) => GrowthRecord[];
+  // CRUD actions for Patient
+  updatePatient: (updatedPatient: Patient) => void;
+  deletePatient: (patientId: string) => void;
+  // CRUD actions for GrowthRecord
+  updateGrowthRecord: (updatedRecord: GrowthRecord) => void;
+  deleteGrowthRecord: (recordId: string) => void;
 }
 
 export type AppStoreState = AppStateValues & AppStateActions;
@@ -195,7 +201,61 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
   },
   getRecordsForPatient: (patientId) => {
     return get().growthRecords.filter(r => r.patientId === patientId);
-  }
+  },
+
+  updatePatient: (updatedPatient) =>
+    set((state) => ({
+      patients: state.patients.map((p) =>
+        p.id === updatedPatient.id ? { ...p, ...updatedPatient } : p
+      ),
+    })),
+
+  deletePatient: (patientId) =>
+    set((state) => {
+      // Also delete associated growth records and BMI records
+      const remainingGrowthRecords = state.growthRecords.filter(
+        (r) => r.patientId !== patientId
+      );
+      // If the deleted patient was selected, clear selection
+      const newSelectedPatientId = state.selectedPatientId === patientId ? null : state.selectedPatientId;
+      return {
+        patients: state.patients.filter((p) => p.id !== patientId),
+        growthRecords: remainingGrowthRecords,
+        selectedPatientId: newSelectedPatientId,
+      };
+    }),
+
+  updateGrowthRecord: (updatedRecord) =>
+    set((state) => {
+      const newGrowthRecords = state.growthRecords.map((r) =>
+        r.id === updatedRecord.id ? { ...r, ...updatedRecord } : r
+      );
+      // After updating a record, we might need to re-calculate BMI if it was a H/W record
+      // For simplicity, this example won't auto-trigger BMI re-calc on simple update.
+      // A more robust solution would check if a H/W record influencing a BMI was changed.
+      // Or, deleting the old BMI and letting addGrowthRecord re-evaluate IF a H or W record that was updated
+      // was one of the pair that formed an existing BMI. This gets complex quickly.
+      // For now, direct update. If H/W values change, BMI won't auto-update from this action alone.
+      return { growthRecords: newGrowthRecords };
+    }),
+
+  deleteGrowthRecord: (recordId) =>
+    set((state) => {
+      const recordToDelete = state.growthRecords.find(r => r.id === recordId);
+      const newGrowthRecords = state.growthRecords.filter((r) => r.id !== recordId);
+
+      // If a Height, Weight, or Length record was deleted, we need to delete any BMI record
+      // that was derived from it (i.e., at the same ageMonths for that patient).
+      if (recordToDelete && (recordToDelete.measurementType === 'Height' || recordToDelete.measurementType === 'Length' || recordToDelete.measurementType === 'Weight')) {
+          const finalRecords = newGrowthRecords.filter(r =>
+              !(r.patientId === recordToDelete.patientId &&
+                r.ageMonths === recordToDelete.ageMonths &&
+                r.measurementType === 'BMI')
+          );
+          return { growthRecords: finalRecords };
+      }
+      return { growthRecords: newGrowthRecords };
+    }),
 });
 
 export const useAppStore = create<AppStoreState>()(
