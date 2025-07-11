@@ -21,7 +21,8 @@ const PatientSelectionPage: React.FC = () => {
   const [formDob, setFormDob] = useState('');
   const [formSex, setFormSex] = useState<'Male' | 'Female' | 'Other' | 'Unknown'>('Unknown');
   const [formCondition, setFormCondition] = useState('');
-  const [formMessage, setFormMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
+  // formMessage can now hold field-specific errors or a general message
+  const [formMessage, setFormMessage] = useState<{type: 'success' | 'error', text: string, field?: string} | null>(null);
 
   const isEditing = formPatientId !== null;
 
@@ -36,28 +37,58 @@ const PatientSelectionPage: React.FC = () => {
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formName.trim() || !formDob.trim()) {
-      setFormMessage({type: 'error', text: 'Patient name and DOB are required.'});
+    setFormMessage(null); // Clear previous messages
+
+    // Validation
+    if (!formName.trim()) {
+      setFormMessage({type: 'error', text: 'Patient name is required.', field: 'formName'});
+      return;
+    }
+    if (formName.trim().length > 100) {
+      setFormMessage({type: 'error', text: 'Patient name cannot exceed 100 characters.', field: 'formName'});
+      return;
+    }
+    if (!formDob.trim()) {
+      setFormMessage({type: 'error', text: 'Date of Birth is required.', field: 'formDob'});
+      return;
+    }
+    const dobDate = new Date(formDob);
+    const today = new Date();
+    today.setHours(0,0,0,0); // Compare dates only
+    if (isNaN(dobDate.getTime())) {
+        setFormMessage({type: 'error', text: 'Invalid Date of Birth format.', field: 'formDob'});
+        return;
+    }
+    if (dobDate > today) {
+        setFormMessage({type: 'error', text: 'Date of Birth cannot be in the future.', field: 'formDob'});
+        return;
+    }
+    if (formCondition.trim().length > 100) {
+      setFormMessage({type: 'error', text: 'Condition cannot exceed 100 characters.', field: 'formCondition'});
       return;
     }
 
     const patientPayload: Omit<Patient, 'id'> & { id?: string } = {
-        name: formName,
+        name: formName.trim(),
         dob: formDob,
         sex: formSex,
         condition: formCondition.trim() || undefined,
     };
 
-    if (isEditing && formPatientId) { // Update existing patient
-        updatePatientAction({ ...patientPayload, id: formPatientId } as Patient);
-        setFormMessage({type: 'success', text: 'Patient updated successfully!'});
-    } else { // Add new patient
-        const newPatient = addPatientAction(patientPayload as Omit<Patient, 'id'>);
-        setFormMessage({type: 'success', text: `Patient "${newPatient.name}" added successfully!`});
+    try {
+        if (isEditing && formPatientId) { // Update existing patient
+            updatePatientAction({ ...patientPayload, id: formPatientId } as Patient);
+            setFormMessage({type: 'success', text: 'Patient updated successfully!'});
+        } else { // Add new patient
+            const newPatient = addPatientAction(patientPayload as Omit<Patient, 'id'>);
+            setFormMessage({type: 'success', text: `Patient "${newPatient.name}" added successfully!`});
+        }
+        resetForm();
+        setTimeout(() => setFormMessage(null), 3000);
+    } catch (error) {
+        console.error("Error submitting patient form:", error);
+        setFormMessage({type: 'error', text: 'An unexpected error occurred. Please try again.'});
     }
-
-    resetForm(); // Reset form after add or successful update
-    setTimeout(() => setFormMessage(null), 3000);
   };
 
   const handleEditPatient = (e: React.MouseEvent, patient: Patient) => {
@@ -111,24 +142,29 @@ const PatientSelectionPage: React.FC = () => {
               <input
                 type="text" id="formName" value={formName}
                 onChange={(e) => setFormName(e.target.value)}
-                className={inputBaseClass} placeholder="Patient's full name" required
+                className={`${inputBaseClass} ${formMessage?.field === 'formName' ? 'border-red-500 dark:border-red-400' : ''}`}
+                placeholder="Patient's full name" required
               />
+              {formMessage?.field === 'formName' && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{formMessage.text}</p>}
             </div>
             <div>
               <label htmlFor="formDob" className={labelBaseClass}>Date of Birth</label>
               <input
                 type="date" id="formDob" value={formDob}
                 onChange={(e) => setFormDob(e.target.value)}
-                className={`${inputBaseClass} [color-scheme:light] dark:[color-scheme:dark]`} required
+                className={`${inputBaseClass} [color-scheme:light] dark:[color-scheme:dark] ${formMessage?.field === 'formDob' ? 'border-red-500 dark:border-red-400' : ''}`} required
               />
+              {formMessage?.field === 'formDob' && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{formMessage.text}</p>}
             </div>
             <div>
               <label htmlFor="formCondition" className={labelBaseClass}>Condition (Optional)</label>
               <input
                 type="text" id="formCondition" value={formCondition}
                 onChange={(e) => setFormCondition(e.target.value)}
-                className={inputBaseClass} placeholder="e.g., Turner Syndrome, Down Syndrome"
+                className={`${inputBaseClass} ${formMessage?.field === 'formCondition' ? 'border-red-500 dark:border-red-400' : ''}`}
+                placeholder="e.g., Turner Syndrome, Down Syndrome"
               />
+              {formMessage?.field === 'formCondition' && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{formMessage.text}</p>}
             </div>
             <div> {/* Sex dropdown - adjust grid span if needed or keep it simple */}
               <label htmlFor="formSex" className={labelBaseClass}>Sex</label>
