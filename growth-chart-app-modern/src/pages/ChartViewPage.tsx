@@ -4,31 +4,21 @@ import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement
 import 'chartjs-adapter-date-fns';
 import useAppStore, { useCurrentPatient, useCurrentPatientRecords, GrowthRecord } from '../store/appStore';
 import Spinner from '../components/Spinner';
-import { getZScoreForMeasurement, LMSDataPoint } from '../utils/zScoreCalculator'; // Import Z-score calculator
+import { getZScoreForMeasurement, LMSDataPoint } from '../utils/zScoreCalculator';
+import { generateVelocityDataSeries, VelocityDataPoint } from '../utils/calculations';
 
 ChartJS.register( CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale, Filler );
 
-// Updated Types for centile data to include optional LMS parameters
 interface CentilePoint {
-  age: number; // months
+  age: number;
   [key: string]: number | undefined;
-  l?: number;
-  m?: number;
-  s?: number;
+  l?: number; m?: number; s?: number;
 }
-
 interface CentileData {
-  source: string;
-  name: string;
-  measurementType: string;
-  sex: 'male' | 'female' | 'any';
-  ageUnit: string;
-  measurementUnit: string;
-  centilesAvailable: string[];
-  lmsParametersAvailable?: string[];
-  data: CentilePoint[]; // Array of LMSDataPoint compatible objects
+  source: string; name: string; measurementType: string; sex: 'male' | 'female' | 'any';
+  ageUnit: string; measurementUnit: string; centilesAvailable: string[];
+  lmsParametersAvailable?: string[]; data: CentilePoint[];
 }
-
 interface CentileManifestEntry {
   id: string; name: string; description: string; measurementType: string; sex: 'male' | 'female' | 'any';
   ageRangeMonths: [number, number]; source: string; type: 'percentiles' | 'z-scores'; dataFile: string;
@@ -38,6 +28,7 @@ const lineColors = [
   'rgb(54, 162, 235)', 'rgb(255, 159, 64)', 'rgb(153, 102, 255)',
   'rgb(201, 203, 207)', 'rgb(255, 205, 86)', 'rgb(75, 192, 75)'
 ];
+const velocityLineColor = 'rgb(255, 99, 71)'; // Tomato color for velocity
 
 const ChartViewPage: React.FC = () => {
   const currentPatient = useCurrentPatient();
@@ -52,8 +43,10 @@ const ChartViewPage: React.FC = () => {
   const [isLoadingCentiles, setIsLoadingCentiles] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [filteredManifest, setFilteredManifest] = useState<CentileManifestEntry[]>([]);
+  const [velocitySeries, setVelocitySeries] = useState<VelocityDataPoint[]>([]);
+  const [chartOptions, setChartOptions] = useState<any>({});
 
-  useEffect(() => {
+  useEffect(() => { /* ... manifest fetching ... */
     const fetchManifest = async () => {
       setIsLoadingManifest(true);
       try {
@@ -69,19 +62,19 @@ const ChartViewPage: React.FC = () => {
     fetchManifest();
   }, []);
 
-  useEffect(() => {
+  useEffect(() => { /* ... filteredManifest update ... */
     if (currentPatient && manifest.length > 0) {
       const newFiltered = manifest.filter(entry => entry.sex === currentPatient.sex.toLowerCase() || entry.sex === 'any');
       setFilteredManifest(newFiltered);
       if (!newFiltered.find(entry => entry.id === selectedCentileId) && newFiltered.length > 0) {
-        // Optionally auto-select.
+        // Auto-select logic can be added here if desired
       } else if (newFiltered.length === 0) { setSelectedCentileId(''); }
     } else if (!currentPatient) {
       setFilteredManifest(manifest); setSelectedCentileId(''); setCurrentCentileData(null);
     } else { setFilteredManifest(manifest); }
   }, [currentPatient, manifest, selectedCentileId]);
 
-  useEffect(() => {
+  useEffect(() => { /* ... currentCentileData fetching ... */
     if (!selectedCentileId) { setCurrentCentileData(null); return; }
     const selectedEntry = manifest.find(entry => entry.id === selectedCentileId);
     if (!selectedEntry) return;
@@ -100,11 +93,12 @@ const ChartViewPage: React.FC = () => {
     fetchCentileFile();
   }, [selectedCentileId, manifest]);
 
-  const [chartOptions, setChartOptions] = useState<any>({});
-
   const updateChartDataAndOptions = useCallback(() => {
-    let patientDataForChart: { x: number; y: number; zScore?: number }[] = []; // Added zScore property
+    let patientDataForChart: { x: number; y: number; zScore?: number }[] = [];
     let patientLabel = 'Patient Measurements';
+    let calculatedVelocitySeries: VelocityDataPoint[] = [];
+
+    const datasets = []; // Start with an empty array for datasets
 
     if (currentPatient && currentCentileData) {
       const hasLMS = currentCentileData.lmsParametersAvailable &&
@@ -112,76 +106,113 @@ const ChartViewPage: React.FC = () => {
                      currentCentileData.lmsParametersAvailable.includes('m') &&
                      currentCentileData.lmsParametersAvailable.includes('s');
 
-      patientDataForChart = patientRecords
-        .filter(r => {
-            let recordMeasurement = '';
-            if (r.measurementType === 'Length' || r.measurementType === 'Height') recordMeasurement = 'length_for_age';
-            else if (r.measurementType === 'Weight') recordMeasurement = 'weight_for_age';
-            else if (r.measurementType === 'HeadCircumference') recordMeasurement = 'hc_for_age';
-            else if (r.measurementType === 'BMI') recordMeasurement = 'bmi_for_age';
-            return recordMeasurement === currentCentileData.measurementType || r.measurementType.toLowerCase().replace(/\s/g, '_') === currentCentileData.measurementType;
-        })
+      const relevantPatientRecords = patientRecords.filter(r => {
+        let recordMeasurementMapped = '';
+        if (r.measurementType === 'Length' || r.measurementType === 'Height') recordMeasurementMapped = 'length_for_age';
+        else if (r.measurementType === 'Weight') recordMeasurementMapped = 'weight_for_age';
+        else if (r.measurementType === 'HeadCircumference') recordMeasurementMapped = 'hc_for_age';
+        else if (r.measurementType === 'BMI') recordMeasurementMapped = 'bmi_for_age';
+        return recordMeasurementMapped === currentCentileData.measurementType ||
+               r.measurementType.toLowerCase().replace(/\s/g, '_') === currentCentileData.measurementType;
+      });
+
+      patientDataForChart = relevantPatientRecords
         .map(r => {
           let zScoreVal: number | undefined = undefined;
           if (hasLMS && currentCentileData.data) {
-            // Ensure currentCentileData.data can be safely cast or used as LMSDataPoint[]
-            // This relies on CentilePoint being compatible if l, m, s are present
             const lmsReferenceData = currentCentileData.data as LMSDataPoint[];
             zScoreVal = getZScoreForMeasurement(r.value, r.ageMonths, lmsReferenceData);
           }
           return { x: r.ageMonths, y: r.value, zScore: zScoreVal };
         })
         .sort((a,b) => a.x - b.x);
+
+      if (currentCentileData.measurementType === 'length_for_age' || currentCentileData.measurementType === 'weight_for_age') {
+        calculatedVelocitySeries = generateVelocityDataSeries(relevantPatientRecords);
+      }
+      setVelocitySeries(calculatedVelocitySeries);
       patientLabel = `${currentPatient.name} - ${currentCentileData.measurementType.replace(/_/g, ' ')}`;
+
     } else if (currentPatient && patientRecords.length > 0 && !currentCentileData) {
         patientLabel = `${currentPatient.name} - Select a chart type`;
+        setVelocitySeries([]);
+    } else {
+        setVelocitySeries([]);
     }
 
+    // Patient's absolute measurement dataset
     const patientDataset = {
       label: patientLabel, data: patientDataForChart,
       borderColor: 'rgb(239, 68, 68)', backgroundColor: 'rgba(239, 68, 68, 0.5)',
       tension: 0.1, pointRadius: 5, order: 0,
+      yAxisID: 'yPrimary', // Assign to primary Y-axis
     };
+    datasets.push(patientDataset);
 
-    const centileDatasets = [];
+    // Centile datasets
     if (currentCentileData) {
       const available = currentCentileData.centilesAvailable || [];
       available.forEach((centileKey, index) => {
-        centileDatasets.push({
+        datasets.push({
           label: `${centileKey.toUpperCase()}`,
           data: currentCentileData.data.map(p => ({ x: p.age, y: p[centileKey] })).sort((a,b) => a.x - b.x),
           borderColor: lineColors[index % lineColors.length],
           borderDash: [5, 5], tension: 0.1, pointRadius: 2, fill: false, order: index + 1,
+          yAxisID: 'yPrimary', // Assign to primary Y-axis
         });
       });
     }
 
-    let yAxisLabel = 'Measurement';
-    if (currentCentileData) { yAxisLabel = `${currentCentileData.measurementType.replace(/_/g, ' ')} (${currentCentileData.measurementUnit})`; }
+    // Patient's velocity dataset (if data exists)
+    let velocityYAxisLabel = 'Velocity';
+    if (velocitySeries.length > 0) {
+        velocityYAxisLabel = `Velocity (${velocitySeries[0].velocityUnit})`;
+        datasets.push({
+            label: `${currentPatient?.name || 'Patient'} - Velocity (${velocitySeries[0].velocityUnit})`,
+            data: velocitySeries.map(v => ({ x: v.ageMonthsMidPoint, y: v.velocity })),
+            borderColor: velocityLineColor,
+            backgroundColor: 'rgba(255, 99, 71, 0.3)',
+            tension: 0.1,
+            pointRadius: 4,
+            borderWidth: 2,
+            yAxisID: 'yVelocity', // Assign to secondary Y-axis
+            order: -1 // Draw velocity behind main patient data for clarity
+        });
+    }
 
-    setChartData({ datasets: [patientDataset, ...centileDatasets] });
+    setChartData({ datasets });
 
+    // Define Colors based on dark mode
     const currentTickColor = darkMode ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)';
     const currentGridColor = darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
     const currentTitleColor = darkMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0, 0, 0, 0.9)';
 
-    // Tooltip callback will be updated in the next step to display Z-score
-    setChartOptions({
+    let yPrimaryLabel = 'Measurement';
+    if (currentCentileData) { yPrimaryLabel = `${currentCentileData.measurementType.replace(/_/g, ' ')} (${currentCentileData.measurementUnit})`; }
+
+
+    // Define Chart Options, including secondary Y-axis for velocity
+    const options: any = {
         responsive: true, maintainAspectRatio: false,
         plugins: {
             legend: { position: 'top' as const, labels: { color: currentTitleColor } },
             title: { display: true, text: currentCentileData ? `${currentCentileData.name}` : (currentPatient ? `${currentPatient.name} - Growth Chart` : 'Growth Chart'), color: currentTitleColor },
-            tooltip: { // Placeholder, will be fully updated in next step
+            tooltip: {
                 callbacks: {
                     label: function(context: any) {
                         let label = context.dataset.label || '';
                         if (label) label += ': ';
                         if (context.parsed.y !== null) {
-                            const unit = currentCentileData?.measurementUnit || (context.datasetIndex === 0 && patientRecords.length > 0 ? patientRecords[0].unit : '');
-                            label += `${context.parsed.y.toFixed(1)} ${unit} at ${context.parsed.x} months`;
-                            // Z-score display will be added here in the next step
-                            if (context.datasetIndex === 0 && context.raw?.zScore !== undefined && !isNaN(context.raw.zScore)) {
-                                label += ` (Z: ${context.raw.zScore.toFixed(2)})`;
+                            let unit = '';
+                            if (context.dataset.yAxisID === 'yVelocity' && velocitySeries.length > 0) {
+                                unit = velocitySeries[0].velocityUnit;
+                                label += `${context.parsed.y.toFixed(1)} ${unit} at ${context.parsed.x.toFixed(1)} months (midpoint)`;
+                            } else {
+                                unit = currentCentileData?.measurementUnit || (context.datasetIndex === 0 && patientRecords.length > 0 ? patientRecords[0].unit : '');
+                                label += `${context.parsed.y.toFixed(1)} ${unit} at ${context.parsed.x.toFixed(1)} months`;
+                                if (context.datasetIndex === 0 && context.raw?.zScore !== undefined && !isNaN(context.raw.zScore)) {
+                                    label += ` (Z: ${context.raw.zScore.toFixed(2)})`;
+                                }
                             }
                         }
                         return label;
@@ -193,15 +224,42 @@ const ChartViewPage: React.FC = () => {
             }
         },
         scales: {
-            x: { type: 'linear' as const, title: { display: true, text: `Age (${currentCentileData?.ageUnit || 'Months'})`, color: currentTitleColor }, min: 0, ticks: { color: currentTickColor }, grid: { color: currentGridColor } },
-            y: { title: { display: true, text: yAxisLabel, color: currentTitleColor }, beginAtZero: false, ticks: { color: currentTickColor }, grid: { color: currentGridColor } }
+            x: {
+                type: 'linear' as const,
+                title: { display: true, text: `Age (${currentCentileData?.ageUnit || 'Months'})`, color: currentTitleColor },
+                min: 0,
+                ticks: { color: currentTickColor },
+                grid: { color: currentGridColor }
+            },
+            yPrimary: { // Primary Y-axis for measurements and centiles
+                type: 'linear' as const,
+                position: 'left' as const,
+                title: { display: true, text: yPrimaryLabel, color: currentTitleColor },
+                beginAtZero: false,
+                ticks: { color: currentTickColor },
+                grid: { color: currentGridColor }
+            }
         },
-        interaction: { mode: 'index' as const, intersect: false },
-    });
-  }, [currentPatient, patientRecords, currentCentileData, darkMode]);
+        interaction: { mode: 'index' as const, intersect: false, axis: 'x' as const },
+    };
+
+    if (velocitySeries.length > 0) {
+        options.scales.yVelocity = { // Secondary Y-axis for velocity
+            type: 'linear' as const,
+            position: 'right' as const,
+            title: { display: true, text: velocityYAxisLabel, color: currentTitleColor },
+            ticks: { color: currentTickColor },
+            grid: { drawOnChartArea: false, color: currentGridColor }, // Only show grid lines for primary axis or style differently
+            // beginAtZero: true, // Velocity can be negative
+        };
+    }
+    setChartOptions(options);
+
+  }, [currentPatient, patientRecords, currentCentileData, darkMode, velocitySeries]); // Added velocitySeries to dependency array
 
   useEffect(() => { updateChartDataAndOptions(); }, [updateChartDataAndOptions]);
 
+  // ... rest of the component (return statement) remains the same
   if (!currentPatient) {
     return (
       <div className="p-4 text-center text-gray-800 dark:text-gray-200">
