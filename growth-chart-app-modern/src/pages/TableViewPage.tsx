@@ -14,6 +14,9 @@ const TableViewPage: React.FC = () => {
   const [newRecordType, setNewRecordType] = useState<GrowthRecord['measurementType']>('Weight');
   const [newRecordValue, setNewRecordValue] = useState<number | ''>('');
   const [newRecordUnit, setNewRecordUnit] = useState<GrowthRecord['unit']>('kg');
+  const [newRecordOtherMeasurementName, setNewRecordOtherMeasurementName] = useState('');
+  const [newRecordInterventionType, setNewRecordInterventionType] = useState('');
+  const [newRecordInterventionDetails, setNewRecordInterventionDetails] = useState('');
   const [newRecordNotes, setNewRecordNotes] = useState('');
   const [addRecordSuccess, setAddRecordSuccess] = useState(false);
 
@@ -31,12 +34,15 @@ const TableViewPage: React.FC = () => {
       case 'BMI':
         setNewRecordUnit('kg/m²'); // BMI is always metric based for calculation
         break;
+      case 'Other':
+        setNewRecordUnit(''); // Allow free text for 'Other' type unit
+        break;
       default:
         setNewRecordUnit(system === 'Metric' ? 'kg' : 'lbs'); // Default to weight units
     }
   };
 
-  // Initialize unit based on current type and global setting when form opens or type changes
+  // Initialize unit and other fields based on current type and global setting when form opens or type changes
   useEffect(() => {
     if (showAddForm) { // Only when form is shown or type changes within an open form
         handleUnitChangeBasedOnType(newRecordType, displayUnitSystem);
@@ -231,17 +237,34 @@ const TableViewPage: React.FC = () => {
     if (newRecordAgeMonths === '' || newRecordValue === '') { alert('Age at measurement and value are required.'); return; }
 
     const recordData: NewGrowthRecordData = {
-      patientId: currentPatient.id, date: newRecordDate, ageMonths: Number(newRecordAgeMonths),
-      measurementType: newRecordType, value: Number(newRecordValue), unit: newRecordUnit,
+      patientId: currentPatient.id,
+      date: newRecordDate,
+      ageMonths: Number(newRecordAgeMonths),
+      measurementType: newRecordType,
+      value: Number(newRecordValue),
+      unit: newRecordUnit,
       notes: newRecordNotes.trim() || undefined,
+      interventionType: newRecordInterventionType.trim() || undefined,
+      interventionDetails: newRecordInterventionDetails.trim() || undefined,
+      otherMeasurementName: newRecordType === 'Other' ? newRecordOtherMeasurementName.trim() || undefined : undefined,
     };
+
+    if (newRecordType === 'Other' && !recordData.otherMeasurementName) {
+        alert('Please provide a name for the "Other" measurement type.');
+        return;
+    }
+
     const newRecord = addGrowthRecord(recordData);
     if (newRecord) {
+        // Reset form fields
         setNewRecordDate(new Date().toISOString().split('T')[0]);
         setNewRecordAgeMonths('');
         setNewRecordType('Weight');
         handleUnitChangeBasedOnType('Weight', displayUnitSystem);
         setNewRecordValue('');
+        setNewRecordOtherMeasurementName('');
+        setNewRecordInterventionType('');
+        setNewRecordInterventionDetails('');
         setNewRecordNotes('');
         setAddRecordSuccess(true);
         setTimeout(() => { setAddRecordSuccess(false); }, 3000);
@@ -320,23 +343,52 @@ const TableViewPage: React.FC = () => {
                     <option value="Weight">Weight</option> <option value="Height">Height (standing)</option>
                     <option value="Length">Length (lying)</option> <option value="HeadCircumference">Head Circumference</option>
                     <option value="BMI" disabled>BMI (auto-calculated)</option>
+                    <option value="Other">Other Measurement</option>
                   </select>
                 </div>
+
+                {newRecordType === 'Other' && (
+                  <div>
+                    <label htmlFor="newRecordOtherMeasurementName" className={labelClass}>Measurement Name</label>
+                    <input type="text" id="newRecordOtherMeasurementName" value={newRecordOtherMeasurementName} onChange={(e) => setNewRecordOtherMeasurementName(e.target.value)} required={newRecordType === 'Other'} className={inputFieldClass} placeholder="e.g., Arm Span, Sitting Height"/>
+                  </div>
+                )}
+
                 <div>
                   <label htmlFor="newRecordValue" className={labelClass}>Value</label>
                   <input type="number" step="any" id="newRecordValue" value={newRecordValue} onChange={(e) => setNewRecordValue(Number(e.target.value))} required className={inputFieldClass} placeholder="e.g., 10.2"/>
                 </div>
-                <div className="md:col-span-2">
+
+                <div className={newRecordType === 'Other' ? "md:col-span-2" : ""}> {/* Unit input spans full if 'Other', else follows grid */}
                   <label htmlFor="newRecordUnit" className={labelClass}>Unit</label>
-                  <select id="newRecordUnit" value={newRecordUnit} onChange={(e) => setNewRecordUnit(e.target.value as GrowthRecord['unit'])} required className={selectFieldClass} disabled={newRecordType === 'BMI'}>
-                    {newRecordType === 'Weight' && <> <option value="kg">kg</option> <option value="lbs">lbs</option> </>}
-                    {(newRecordType === 'Height' || newRecordType === 'Length' || newRecordType === 'HeadCircumference') && <> <option value="cm">cm</option> <option value="in">in</option> </>}
-                    {newRecordType === 'BMI' && <option value="kg/m²">kg/m²</option>}
-                  </select>
+                  {newRecordType === 'Other' ? (
+                    <input type="text" id="newRecordUnit" value={newRecordUnit} onChange={(e) => setNewRecordUnit(e.target.value)} required className={inputFieldClass} placeholder="e.g., cm, ratio, score"/>
+                  ) : (
+                    <select id="newRecordUnit" value={newRecordUnit} onChange={(e) => setNewRecordUnit(e.target.value as GrowthRecord['unit'])} required className={selectFieldClass} disabled={newRecordType === 'BMI'}>
+                      {newRecordType === 'Weight' && <> <option value="kg">kg</option> <option value="lbs">lbs</option> </>}
+                      {(newRecordType === 'Height' || newRecordType === 'Length' || newRecordType === 'HeadCircumference') && <> <option value="cm">cm</option> <option value="in">in</option> </>}
+                      {newRecordType === 'BMI' && <option value="kg/m²">kg/m²</option>}
+                    </select>
+                  )}
                 </div>
+
+                <div className="md:col-span-2 border-t border-gray-200 dark:border-gray-600 pt-5 mt-1"> {/* Intervention section with separator */}
+                    <h4 className="text-md font-medium text-gray-700 dark:text-gray-200 mb-2">Intervention (Optional)</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+                        <div>
+                            <label htmlFor="newRecordInterventionType" className={labelClass}>Intervention Type</label>
+                            <input type="text" id="newRecordInterventionType" value={newRecordInterventionType} onChange={(e) => setNewRecordInterventionType(e.target.value)} className={inputFieldClass} placeholder="e.g., Growth Hormone, Diet Change"/>
+                        </div>
+                        <div>
+                            <label htmlFor="newRecordInterventionDetails" className={labelClass}>Intervention Details</label>
+                            <input type="text" id="newRecordInterventionDetails" value={newRecordInterventionDetails} onChange={(e) => setNewRecordInterventionDetails(e.target.value)} className={inputFieldClass} placeholder="e.g., Dosage, Specifics"/>
+                        </div>
+                    </div>
+                </div>
+
                 <div className="md:col-span-2">
-                  <label htmlFor="newRecordNotes" className={labelClass}>Notes (Optional)</label>
-                  <textarea id="newRecordNotes" value={newRecordNotes} onChange={(e) => setNewRecordNotes(e.target.value)} rows={3} className={inputFieldClass} placeholder="Any relevant notes..."></textarea>
+                  <label htmlFor="newRecordNotes" className={labelClass}>General Notes (Optional)</label>
+                  <textarea id="newRecordNotes" value={newRecordNotes} onChange={(e) => setNewRecordNotes(e.target.value)} rows={2} className={inputFieldClass} placeholder="Any relevant general notes..."></textarea>
                 </div>
             </div>
             <div className="pt-3 flex justify-end items-center space-x-3">

@@ -103,6 +103,52 @@ describe('Zustand App Store (Actions Logic)', () => {
     expect(testStore.getState().getRecordsForPatient('non-existent-id')).toEqual([]);
   });
 
+  it('should add a patient with a condition', () => {
+    const patientData = { name: 'Patient With Condition', dob: '2023-04-01', sex: 'Unknown', condition: 'Test Condition' };
+    const newPatient = testStore.getState().addPatient(patientData);
+    expect(newPatient.condition).toBe('Test Condition');
+    const fetchedPatient = testStore.getState().getPatientById(newPatient.id);
+    expect(fetchedPatient?.condition).toBe('Test Condition');
+  });
+
+  it('should add a growth record with intervention details', () => {
+    const patient = testStore.getState().addPatient({ name: 'Intervention Patient', dob: '2023-05-01', sex: 'Male' });
+    const recordData: NewGrowthRecordData = {
+      patientId: patient.id, date: '2023-05-15', ageMonths: 0.5,
+      measurementType: 'Weight', value: 3.5, unit: 'kg',
+      interventionType: 'Dietary Change', interventionDetails: 'Started new formula'
+    };
+    const newRecord = testStore.getState().addGrowthRecord(recordData);
+    expect(newRecord.interventionType).toBe('Dietary Change');
+    expect(newRecord.interventionDetails).toBe('Started new formula');
+    const fetchedRecord = testStore.getState().growthRecords.find(r => r.id === newRecord.id);
+    expect(fetchedRecord?.interventionType).toBe('Dietary Change');
+  });
+
+  it('should add a growth record with "Other" measurement type and not trigger BMI', () => {
+    const patient = testStore.getState().addPatient({ name: 'Other Measurement Patient', dob: '2023-06-01', sex: 'Female' });
+    const recordData: NewGrowthRecordData = {
+      patientId: patient.id, date: '2023-06-15', ageMonths: 0.5,
+      measurementType: 'Other', otherMeasurementName: 'Arm Span', value: 30, unit: 'cm'
+    };
+    testStore.getState().addGrowthRecord(recordData);
+
+    // Add a weight record to see if BMI is (not) triggered
+    testStore.getState().addGrowthRecord({
+        patientId: patient.id, date: '2023-06-15', ageMonths: 0.5,
+        measurementType: 'Weight', value: 3.0, unit: 'kg'
+    });
+
+    const records = testStore.getState().getRecordsForPatient(patient.id);
+    const otherRecord = records.find(r => r.measurementType === 'Other');
+    expect(otherRecord).toBeDefined();
+    expect(otherRecord?.otherMeasurementName).toBe('Arm Span');
+
+    const bmiRecord = records.find(r => r.measurementType === 'BMI');
+    expect(bmiRecord).toBeUndefined(); // BMI should not be auto-calculated with 'Other' type present
+  });
+
+
   describe('Automatic BMI Record Generation', () => {
     let patientId: string;
 

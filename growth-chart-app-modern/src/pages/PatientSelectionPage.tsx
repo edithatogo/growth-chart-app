@@ -10,6 +10,7 @@ const PatientSelectionPage: React.FC = () => {
   const [newPatientName, setNewPatientName] = useState('');
   const [newPatientDob, setNewPatientDob] = useState('');
   const [newPatientSex, setNewPatientSex] = useState<'Male' | 'Female' | 'Other' | 'Unknown'>('Unknown');
+  const [newPatientCondition, setNewPatientCondition] = useState(''); // New state for condition
   const [addPatientSuccess, setAddPatientSuccess] = useState(false);
 
   const handleAddPatient = (e: React.FormEvent) => {
@@ -18,11 +19,21 @@ const PatientSelectionPage: React.FC = () => {
       alert('Patient name and DOB are required.');
       return;
     }
-    const newPatient = addPatient({ name: newPatientName, dob: newPatientDob, sex: newPatientSex });
+    const patientPayload: Omit<Patient, 'id'> = {
+        name: newPatientName,
+        dob: newPatientDob,
+        sex: newPatientSex
+    };
+    if (newPatientCondition.trim()) {
+        patientPayload.condition = newPatientCondition.trim();
+    }
+    const newPatient = addPatient(patientPayload);
+
     if (newPatient) {
         setNewPatientName('');
         setNewPatientDob('');
         setNewPatientSex('Unknown');
+        setNewPatientCondition(''); // Reset condition field
         setAddPatientSuccess(true);
         setTimeout(() => setAddPatientSuccess(false), 3000);
     } else {
@@ -62,7 +73,15 @@ const PatientSelectionPage: React.FC = () => {
                 className={`${inputBaseClass} [color-scheme:light] dark:[color-scheme:dark]`} required
               />
             </div>
-            <div className="md:col-span-2"> {/* Sex dropdown can span full width or be part of grid */}
+            <div> {/* Condition field, making it part of the 2-column layout */}
+              <label htmlFor="newPatientCondition" className={labelBaseClass}>Condition (Optional)</label>
+              <input
+                type="text" id="newPatientCondition" value={newPatientCondition}
+                onChange={(e) => setNewPatientCondition(e.target.value)}
+                className={inputBaseClass} placeholder="e.g., Turner Syndrome, Down Syndrome"
+              />
+            </div>
+            <div className="md:col-span-2">
               <label htmlFor="newPatientSex" className={labelBaseClass}>Sex</label>
               <select
                 id="newPatientSex" value={newPatientSex}
@@ -106,9 +125,12 @@ const PatientSelectionPage: React.FC = () => {
               <div>
                 <h3 className="text-lg font-medium text-gray-800 dark:text-gray-100">{patient.name}</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-300">DOB: {patient.dob} | Sex: {patient.sex}</p>
+                {patient.condition && (
+                  <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">Condition: {patient.condition}</p>
+                )}
               </div>
               {selectedPatientId === patient.id && (
-                <span className="text-xs font-semibold text-blue-600 dark:text-blue-300 bg-blue-200 dark:bg-blue-700 px-2 py-1 rounded-full">Selected</span>
+                <span className="text-xs font-semibold text-blue-600 dark:text-blue-300 bg-blue-200 dark:bg-blue-700 px-2 py-1 rounded-full self-center">Selected</span>
               )}
             </div>
           ))}

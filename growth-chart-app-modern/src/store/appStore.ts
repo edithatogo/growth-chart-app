@@ -10,6 +10,7 @@ export interface Patient {
   name: string;
   dob: string;
   sex: 'Male' | 'Female' | 'Other' | 'Unknown';
+  condition?: string; // Optional: For condition-specific context
 }
 
 export type NewGrowthRecordData = Omit<GrowthRecord, 'id'>;
@@ -19,10 +20,13 @@ export interface GrowthRecord {
   patientId: string;
   date: string;
   ageMonths: number;
-  measurementType: 'Weight' | 'Height' | 'Length' | 'HeadCircumference' | 'BMI';
+  measurementType: 'Weight' | 'Height' | 'Length' | 'HeadCircumference' | 'BMI' | 'Other'; // Added 'Other'
+  otherMeasurementName?: string; // Name if measurementType is 'Other'
   value: number;
-  unit: 'kg' | 'lbs' | 'cm' | 'in' | 'kg/m²';
+  unit: 'kg' | 'lbs' | 'cm' | 'in' | 'kg/m²' | string; // Allow generic string for 'Other' units
   notes?: string;
+  interventionType?: string;    // e.g., 'Growth Hormone', 'Dietary Change'
+  interventionDetails?: string; // e.g., Dosage, specifics of diet
 }
 
 export interface AppSettings {
