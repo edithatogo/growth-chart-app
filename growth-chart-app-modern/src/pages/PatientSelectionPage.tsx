@@ -1,11 +1,6 @@
 import React, { useState } from 'react';
-import useAppStore, { Patient } from '../store/appStore';
-
-const PatientSelectionPage: React.FC = () => {
-import { TrashIcon } from '@heroicons/react/24/outline'; // Import TrashIcon
-
-const PatientSelectionPage: React.FC = () => {
-import { TrashIcon, PencilSquareIcon, XCircleIcon } from '@heroicons/react/24/outline'; // Import more icons
+import useAppStore, { Patient } from '@/store/appStore'; // Using @ alias
+import { TrashIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
 
 const PatientSelectionPage: React.FC = () => {
   const patients = useAppStore((state) => state.patients);
@@ -15,13 +10,11 @@ const PatientSelectionPage: React.FC = () => {
   const selectPatient = useAppStore((state) => state.selectPatient);
   const deletePatientAction = useAppStore((state) => state.deletePatient);
 
-  // Form state
-  const [formPatientId, setFormPatientId] = useState<string | null>(null); // For editing
+  const [formPatientId, setFormPatientId] = useState<string | null>(null);
   const [formName, setFormName] = useState('');
   const [formDob, setFormDob] = useState('');
   const [formSex, setFormSex] = useState<'Male' | 'Female' | 'Other' | 'Unknown'>('Unknown');
   const [formCondition, setFormCondition] = useState('');
-  // formMessage can now hold field-specific errors or a general message
   const [formMessage, setFormMessage] = useState<{type: 'success' | 'error', text: string, field?: string} | null>(null);
 
   const isEditing = formPatientId !== null;
@@ -32,58 +25,51 @@ const PatientSelectionPage: React.FC = () => {
     setFormDob('');
     setFormSex('Unknown');
     setFormCondition('');
-    setFormMessage(null);
+    // Keep formMessage for a moment if it was a success message from submit
+    // It will be cleared by its own timeout or on next submit attempt
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setFormMessage(null); // Clear previous messages
+    setFormMessage(null);
 
-    // Validation
     if (!formName.trim()) {
-      setFormMessage({type: 'error', text: 'Patient name is required.', field: 'formName'});
-      return;
+      setFormMessage({type: 'error', text: 'Patient name is required.', field: 'formName'}); return;
     }
     if (formName.trim().length > 100) {
-      setFormMessage({type: 'error', text: 'Patient name cannot exceed 100 characters.', field: 'formName'});
-      return;
+      setFormMessage({type: 'error', text: 'Patient name cannot exceed 100 characters.', field: 'formName'}); return;
     }
     if (!formDob.trim()) {
-      setFormMessage({type: 'error', text: 'Date of Birth is required.', field: 'formDob'});
-      return;
+      setFormMessage({type: 'error', text: 'Date of Birth is required.', field: 'formDob'}); return;
     }
     const dobDate = new Date(formDob);
-    const today = new Date();
-    today.setHours(0,0,0,0); // Compare dates only
+    const today = new Date(); today.setHours(0,0,0,0);
     if (isNaN(dobDate.getTime())) {
-        setFormMessage({type: 'error', text: 'Invalid Date of Birth format.', field: 'formDob'});
-        return;
+        setFormMessage({type: 'error', text: 'Invalid Date of Birth format.', field: 'formDob'}); return;
     }
     if (dobDate > today) {
-        setFormMessage({type: 'error', text: 'Date of Birth cannot be in the future.', field: 'formDob'});
-        return;
+        setFormMessage({type: 'error', text: 'Date of Birth cannot be in the future.', field: 'formDob'}); return;
     }
     if (formCondition.trim().length > 100) {
-      setFormMessage({type: 'error', text: 'Condition cannot exceed 100 characters.', field: 'formCondition'});
-      return;
+      setFormMessage({type: 'error', text: 'Condition cannot exceed 100 characters.', field: 'formCondition'}); return;
     }
 
     const patientPayload: Omit<Patient, 'id'> & { id?: string } = {
-        name: formName.trim(),
-        dob: formDob,
-        sex: formSex,
+        name: formName.trim(), dob: formDob, sex: formSex,
         condition: formCondition.trim() || undefined,
     };
 
     try {
-        if (isEditing && formPatientId) { // Update existing patient
+        let successMessageText = '';
+        if (isEditing && formPatientId) {
             updatePatientAction({ ...patientPayload, id: formPatientId } as Patient);
-            setFormMessage({type: 'success', text: 'Patient updated successfully!'});
-        } else { // Add new patient
+            successMessageText = 'Patient updated successfully!';
+        } else {
             const newPatient = addPatientAction(patientPayload as Omit<Patient, 'id'>);
-            setFormMessage({type: 'success', text: `Patient "${newPatient.name}" added successfully!`});
+            successMessageText = `Patient "${newPatient.name}" added successfully!`;
         }
         resetForm();
+        setFormMessage({type: 'success', text: successMessageText}); // Set success message AFTER resetForm (which shouldn't clear it now)
         setTimeout(() => setFormMessage(null), 3000);
     } catch (error) {
         console.error("Error submitting patient form:", error);
@@ -98,20 +84,20 @@ const PatientSelectionPage: React.FC = () => {
     setFormDob(patient.dob);
     setFormSex(patient.sex);
     setFormCondition(patient.condition || '');
-    setFormMessage(null); // Clear any previous messages
-    // Scroll form into view or focus first field (optional UX enhancement)
+    setFormMessage(null);
     document.getElementById('patientFormHeading')?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const handleCancelEdit = () => {
     resetForm();
+    setFormMessage(null); // Explicitly clear message on cancel
   }
 
   const handleSelectPatient = (patientId: string) => {
     selectPatient(patientId);
-    // If form was in edit mode for a different patient, reset it
     if (isEditing && formPatientId !== patientId) {
         resetForm();
+        setFormMessage(null);
     }
   };
 
@@ -119,13 +105,15 @@ const PatientSelectionPage: React.FC = () => {
     e.stopPropagation();
     if (window.confirm(`Are you sure you want to delete patient "${patientName}" and all their associated records? This action cannot be undone.`)) {
       deletePatientAction(patientId);
-      if(formPatientId === patientId) resetForm(); // Reset form if editing the deleted patient
+      if(formPatientId === patientId) { // If deleting the patient currently in edit form
+        resetForm();
+        setFormMessage(null);
+      }
     }
   };
 
   const inputBaseClass = "mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white dark:bg-gray-800 dark:text-gray-200";
   const labelBaseClass = "block text-sm font-medium text-gray-600 dark:text-gray-300";
-
 
   return (
     <div className="p-4 text-gray-800 dark:text-gray-200">
@@ -166,7 +154,7 @@ const PatientSelectionPage: React.FC = () => {
               />
               {formMessage?.field === 'formCondition' && <p className="text-xs text-red-500 dark:text-red-400 mt-1">{formMessage.text}</p>}
             </div>
-            <div> {/* Sex dropdown - adjust grid span if needed or keep it simple */}
+            <div>
               <label htmlFor="formSex" className={labelBaseClass}>Sex</label>
               <select
                 id="formSex" value={formSex}
@@ -179,8 +167,8 @@ const PatientSelectionPage: React.FC = () => {
             </div>
           </div>
           <div className="pt-2 flex flex-col sm:flex-row justify-end items-center space-y-2 sm:space-y-0 sm:space-x-3">
-            {formMessage && (
-              <p className={`text-sm animate-pulse ${formMessage.type === 'success' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+            {formMessage && (formMessage.type === 'success' || (formMessage.type === 'error' && !formMessage.field) ) && (
+              <p className={`text-sm ${formMessage.type === 'success' ? 'text-green-600 dark:text-green-400 animate-pulse' : 'text-red-600 dark:text-red-400'}`}>
                 {formMessage.text}
               </p>
             )}
@@ -203,7 +191,7 @@ const PatientSelectionPage: React.FC = () => {
       </div>
 
       <h3 className="text-xl font-semibold mb-4 text-gray-700 dark:text-gray-100">Patient List</h3>
-      {patients.length > 0 ? (
+      {patients && patients.length > 0 ? ( // Check if patients is an array
         <div className="space-y-3">
           {patients.map((patient) => (
             <div
@@ -217,14 +205,14 @@ const PatientSelectionPage: React.FC = () => {
               role="button" tabIndex={0}
               onKeyPress={(e) => e.key === 'Enter' && handleSelectPatient(patient.id)}
             >
-              <div className="flex-grow"> {/* Allow text content to take space */}
+              <div className="flex-grow">
                 <h3 className="text-lg font-medium text-gray-800 dark:text-gray-100">{patient.name}</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-300">DOB: {patient.dob} | Sex: {patient.sex}</p>
                 {patient.condition && (
                   <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">Condition: {patient.condition}</p>
                 )}
               </div>
-              <div className="flex items-center space-x-2 flex-shrink-0 ml-2"> {/* Prevent buttons from causing overflow */}
+              <div className="flex items-center space-x-2 flex-shrink-0 ml-2">
                 {selectedPatientId === patient.id && (
                   <span className="text-xs font-semibold text-blue-600 dark:text-blue-300 bg-blue-200 dark:bg-blue-700 px-2 py-1 rounded-full self-center">Selected</span>
                 )}
@@ -256,7 +244,7 @@ const PatientSelectionPage: React.FC = () => {
         </div>
       )}
 
-      {selectedPatientId && patients.find(p => p.id === selectedPatientId) && ( // Ensure patient exists before showing confirmation
+      {selectedPatientId && patients && patients.find(p => p.id === selectedPatientId) && (
         <div className="mt-8 p-4 bg-green-100 dark:bg-green-900/60 border border-green-300 dark:border-green-700 rounded-lg shadow text-center">
           <p className="text-green-700 dark:text-green-300 font-medium">
             Patient <span className="font-bold">{patients.find(p => p.id === selectedPatientId)?.name}</span> is currently selected.

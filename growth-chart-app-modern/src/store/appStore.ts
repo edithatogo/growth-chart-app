@@ -1,11 +1,10 @@
 import { create, StateCreator } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
-import { calculateBMI } from '../utils/calculations';
+import { calculateBMI, calculateAgeInMonths } from '../utils/calculations'; // Import age calculator
 import { convertToMetricForCalc } from '../utils/units';
-import FHIR from 'fhirclient'; // Import fhirclient for FHIR.client and types
-import { Client,fhirclient } from 'fhirclient/lib/client'; // Import Client type directly
-// fhirclient.FHIR.Patient etc for FHIR resource types if needed, or use a more specific import
+import FHIR from 'fhirclient';
+import { Client, fhirclient } from 'fhirclient/lib/client';
 
 // --- Interfaces ---
 export interface Patient {
@@ -28,12 +27,12 @@ export interface AppSettings {
   notifications: { appointmentReminders: boolean; newDataAlerts: boolean; };
 }
 export interface FHIRContext {
-  client?: Client; // The fhirclient instance
-  patientId?: string; // FHIR Patient ID
+  client?: Client;
+  patientId?: string;
   serverUrl?: string;
   error?: string | null;
-  isRetrieved?: boolean; // Flag if context was attempted to be retrieved from session
-  isAuthorized?: boolean; // Flag if successfully authorized and client is ready
+  isRetrieved?: boolean;
+  isAuthorized?: boolean;
 }
 export interface AppStateValues {
   patients: Patient[]; growthRecords: GrowthRecord[]; settings: AppSettings;
@@ -54,7 +53,8 @@ export interface AppStateActions {
   initializeFHIRClient: () => Promise<Client | null>;
   setFHIRContext: (context: Partial<FHIRContext>) => void;
   clearFHIRContext: () => void;
-  fetchFHIRPatientData: () => Promise<void>; // Fetches FHIR patient and potentially syncs
+  fetchFHIRPatientData: () => Promise<void>;
+  fetchFHIRGrowthData: () => Promise<void>;
 }
 export type AppStoreState = AppStateValues & AppStateActions;
 
@@ -73,14 +73,13 @@ export const initialAppState: AppStateValues = {
 export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
   ...initialAppState,
 
-  // Patient & Record CRUD (existing actions remain largely the same)
-  addPatient: (patientData) => { /* ... */
+  addPatient: (patientData) => {
     const newPatient = { ...patientData, id: uuidv4() };
     set((state) => ({ patients: [...state.patients, newPatient] }));
     return newPatient;
   },
   selectPatient: (patientId) => set({ selectedPatientId: patientId }),
-  _addOrUpdateBMIRecordInternal: (patientId, ageMonths, date, bmiValue) => { /* ... */
+  _addOrUpdateBMIRecordInternal: (patientId, ageMonths, date, bmiValue) => {
     set((state) => {
       const existingBMIRecordIndex = state.growthRecords.findIndex(
         (r) => r.patientId === patientId && r.ageMonths === ageMonths && r.measurementType === 'BMI'
@@ -102,7 +101,7 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
       return { growthRecords: newGrowthRecords };
     });
   },
-  addGrowthRecord: (recordData) => { /* ... includes call to _addOrUpdateBMIRecordInternal and convertToMetricForCalc for BMI ... */
+  addGrowthRecord: (recordData) => {
     if (!recordData.patientId) {
         console.error("Attempted to add growth record without patientId", recordData);
         throw new Error("patientId is required to add a growth record.");
@@ -146,7 +145,7 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
   getPatientById: (patientId) => get().patients.find(p => p.id === patientId),
   getRecordsForPatient: (patientId) => get().growthRecords.filter(r => r.patientId === patientId),
   updatePatient: (updatedPatient) => set((state) => ({ patients: state.patients.map((p) => p.id === updatedPatient.id ? { ...p, ...updatedPatient } : p) })),
-  deletePatient: (patientId) => set((state) => { /* ... */
+  deletePatient: (patientId) => set((state) => {
       const remainingGrowthRecords = state.growthRecords.filter( (r) => r.patientId !== patientId );
       const newSelectedPatientId = state.selectedPatientId === patientId ? null : state.selectedPatientId;
       return {
@@ -156,7 +155,7 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
       };
   }),
   updateGrowthRecord: (updatedRecord) => set((state) => ({ growthRecords: state.growthRecords.map((r) => r.id === updatedRecord.id ? { ...r, ...updatedRecord } : r) })),
-  deleteGrowthRecord: (recordId) => set((state) => { /* ... includes BMI cascade delete ... */
+  deleteGrowthRecord: (recordId) => set((state) => {
       const recordToDelete = state.growthRecords.find(r => r.id === recordId);
       let newGrowthRecords = state.growthRecords.filter((r) => r.id !== recordId);
       if (recordToDelete && (recordToDelete.measurementType === 'Height' || recordToDelete.measurementType === 'Length' || recordToDelete.measurementType === 'Weight')) {
@@ -167,50 +166,33 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
       return { growthRecords: newGrowthRecords };
   }),
 
-  // --- FHIR Actions Implementation ---
   setFHIRContext: (context) =>
     set((state) => ({ fhirContext: { ...state.fhirContext, ...context } })),
 
-  clearFHIRContext: () => // Also sets isRetrieved to true, indicating an attempt was made or context cleared.
+  clearFHIRContext: () =>
     set({ fhirContext: { ...initialAppState.fhirContext, isRetrieved: true, isAuthorized: false } }),
 
   initializeFHIRClient: async () => {
     const currentFhirContext = get().fhirContext;
     if (currentFhirContext.client || currentFhirContext.isRetrieved) {
-        // If already attempted or initialized, return current client or null
-        get().setFHIRContext({ isRetrieved: true }); // Ensure isRetrieved is true
+        get().setFHIRContext({ isRetrieved: true });
         return currentFhirContext.client || null;
     }
-
     let clientInstance: Client | null = null;
     try {
         const storedContextString = sessionStorage.getItem('fhirContext');
         if (storedContextString) {
             const storedContext = JSON.parse(storedContextString);
             if (storedContext.serverUrl && storedContext.tokenResponse) {
-                // Re-initialize the client object from stored state.
-                // The fhirclient instance itself is not directly serializable.
-                clientInstance = FHIR.client({
-                    serverUrl: storedContext.serverUrl,
-                    tokenResponse: storedContext.tokenResponse,
-                });
-                // If patientId was also stored, pass it to ensure client.patient.id is set
-                if (storedContext.patientId) {
-                    clientInstance.patient.id = storedContext.patientId;
-                }
-
+                clientInstance = FHIR.client({ serverUrl: storedContext.serverUrl, tokenResponse: storedContext.tokenResponse });
+                if (storedContext.patientId) clientInstance.patient.id = storedContext.patientId;
                 get().setFHIRContext({
-                    client: clientInstance,
-                    patientId: clientInstance.patient.id, // Should be set by FHIR.client if tokenResponse has patient
-                    serverUrl: clientInstance.serverUrl,
-                    error: null,
-                    isRetrieved: true,
-                    isAuthorized: true,
+                    client: clientInstance, patientId: clientInstance.patient.id,
+                    serverUrl: clientInstance.serverUrl, error: null, isRetrieved: true, isAuthorized: true,
                 });
-                // sessionStorage.removeItem('fhirContext'); // Good practice to clear after use
             } else { throw new Error("Stored FHIR context is incomplete."); }
         } else {
-             get().setFHIRContext({ isRetrieved: true, error: null, isAuthorized: false }); // No stored context
+             get().setFHIRContext({ isRetrieved: true, error: null, isAuthorized: false });
         }
     } catch (error: any) {
         console.error("Error initializing FHIR client from session storage:", error);
@@ -220,34 +202,24 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
   },
 
   fetchFHIRPatientData: async () => {
-    const { client } = get().fhirContext; // client should have patientId if properly initialized by SMART launch
+    const { client } = get().fhirContext;
     const currentFhirPatientId = get().fhirContext.patientId;
-
     if (!client || !client.patient?.id || !currentFhirPatientId) {
       const errorMsg = "FHIR client not ready or patient ID missing for fetching patient data.";
-      console.warn(errorMsg);
-      get().setFHIRContext({ error: errorMsg });
-      return;
+      console.warn(errorMsg); get().setFHIRContext({ error: errorMsg }); return;
     }
-
     try {
-      const fhirPatient: fhirclient.FHIR.Patient = await client.patient.read(); // client.patient.read() uses client.patient.id
+      const fhirPatient: fhirclient.FHIR.Patient = await client.patient.read();
       console.log("Fetched FHIR Patient:", fhirPatient);
-
       let name = "Unknown FHIR Patient";
       if (fhirPatient.name && fhirPatient.name.length > 0) {
           const primaryName = fhirPatient.name.find(n => n.use === 'official') || fhirPatient.name[0];
           name = `${primaryName.given?.join(" ") || ""} ${primaryName.family || ""}`.trim();
       }
-
       const appPatient: Patient = {
-        id: `FHIR-${fhirPatient.id}`,
-        name: name,
-        dob: fhirPatient.birthDate || "Unknown",
+        id: `FHIR-${fhirPatient.id}`, name: name, dob: fhirPatient.birthDate || "Unknown",
         sex: (fhirPatient.gender === "male" ? "Male" : fhirPatient.gender === "female" ? "Female" : fhirPatient.gender === "other" ? "Other" : "Unknown"),
-        // condition: TODO: map from FHIR Condition resource if needed
       };
-
       let existingPatient = get().patients.find(p => p.id === appPatient.id);
       if (existingPatient) {
         get().updatePatient(appPatient);
@@ -257,9 +229,91 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
       get().selectPatient(existingPatient.id);
       get().setFHIRContext({ error: null });
 
+      // Now that patient is processed, fetch their growth data
+      await get().fetchFHIRGrowthData();
+
     } catch (error: any) {
       console.error("Error fetching FHIR Patient data:", error);
       get().setFHIRContext({ error: error.message || "Failed to fetch FHIR patient data." });
+    }
+  },
+
+  fetchFHIRGrowthData: async () => {
+    const { client, patientId: fhirPatientId } = get().fhirContext;
+    const fhirAppPatient = get().patients.find(p => p.id === `FHIR-${fhirPatientId}`);
+
+    if (!client || !fhirPatientId || !fhirAppPatient || !fhirAppPatient.dob || fhirAppPatient.dob === "Unknown") {
+      const errorMsg = "FHIR client/patient ID not ready, or patient DOB unknown for fetching/processing growth data.";
+      console.warn(errorMsg);
+      get().setFHIRContext({ error: errorMsg });
+      return;
+    }
+
+    const loincToMeasurementType: Record<string, GrowthRecord['measurementType']> = {
+      '29463-7': 'Weight', '8302-2': 'Height', '8306-3': 'Length',
+      '8287-5': 'HeadCircumference', '39156-5': 'BMI',
+    };
+    const growthLoincCodes = Object.keys(loincToMeasurementType).join(',');
+
+    try {
+      const bundle = await client.request(`Observation?patient=${fhirPatientId}&code=${growthLoincCodes}&_sort=date&_count=100`);
+      let fetchedGrowthRecords: GrowthRecord[] = [];
+      if (bundle && bundle.entry && Array.isArray(bundle.entry)) {
+        const observations = bundle.entry.map((entry: any) => entry.resource as fhirclient.FHIR.Observation);
+        observations.forEach(obs => {
+          if (obs.valueQuantity && obs.effectiveDateTime) {
+            const loincCode = obs.code?.coding?.[0]?.code;
+            const measurementType = loincCode ? loincToMeasurementType[loincCode] : undefined;
+            if (measurementType) {
+              let unit = obs.valueQuantity.unit || obs.valueQuantity.code || '';
+              if (unit === 'kg' || unit.toLowerCase() === 'kilograms') unit = 'kg';
+              else if (unit === '[lb_av]' || unit.toLowerCase() === 'pounds') unit = 'lbs';
+              else if (unit === 'cm' || unit.toLowerCase() === 'centimeters') unit = 'cm';
+              else if (unit === '[in_i]' || unit.toLowerCase() === 'inches') unit = 'in';
+              else if (unit === 'kg/m2') unit = 'kg/m²';
+              const ageMonths = calculateAgeInMonths(fhirAppPatient.dob, obs.effectiveDateTime);
+              if (!isNaN(obs.valueQuantity.value!) && !isNaN(ageMonths)) {
+                fetchedGrowthRecords.push({
+                  id: `FHIR-${obs.id}`, patientId: fhirAppPatient.id,
+                  date: obs.effectiveDateTime.split('T')[0], ageMonths: ageMonths,
+                  measurementType: measurementType, value: obs.valueQuantity.value!,
+                  unit: unit as GrowthRecord['unit'],
+                });
+              }
+            }
+          }
+        });
+      }
+      set((state) => {
+        const otherPatientRecords = state.growthRecords.filter(r => r.patientId !== fhirAppPatient.id);
+        const newTotalRecords = [...otherPatientRecords, ...fetchedGrowthRecords];
+        const patientRecordsPostFetch = newTotalRecords.filter(r => r.patientId === fhirAppPatient.id);
+        const uniqueAgeMonths = [...new Set(patientRecordsPostFetch.filter(r => r.measurementType === 'Weight' || r.measurementType === 'Height' || r.measurementType === 'Length').map(r => r.ageMonths))];
+        let recordsIncludingNewBMIs = [...newTotalRecords];
+        uniqueAgeMonths.forEach(age => {
+            const weightRecord = patientRecordsPostFetch.find(r => r.ageMonths === age && r.measurementType === 'Weight');
+            const heightRecord = patientRecordsPostFetch.find(r => r.ageMonths === age && (r.measurementType === 'Height' || r.measurementType === 'Length'));
+            if (weightRecord && heightRecord) {
+                const weightInKg = convertToMetricForCalc(weightRecord.value, weightRecord.unit as GrowthRecord['unit']);
+                const heightInCm = convertToMetricForCalc(heightRecord.value, heightRecord.unit as GrowthRecord['unit']);
+                const recordDate = new Date(weightRecord.date) > new Date(heightRecord.date) ? weightRecord.date : heightRecord.date;
+                if (!isNaN(weightInKg) && !isNaN(heightInCm) && heightInCm > 0) {
+                    const bmi = calculateBMI(weightInKg, heightInCm);
+                    if (!isNaN(bmi)) {
+                        const existingBMIRecordIndex = recordsIncludingNewBMIs.findIndex((r) => r.patientId === fhirAppPatient.id && r.ageMonths === age && r.measurementType === 'BMI');
+                        if (existingBMIRecordIndex > -1) {
+                            recordsIncludingNewBMIs[existingBMIRecordIndex] = { ...recordsIncludingNewBMIs[existingBMIRecordIndex], value: bmi, date: recordDate,};
+                        } else {
+                            recordsIncludingNewBMIs.push({
+                                id: uuidv4(), patientId: fhirAppPatient.id, ageMonths: age, date: recordDate,
+                                measurementType: 'BMI', value: bmi, unit: 'kg/m²',
+                            });
+                        }}}}});
+        return { growthRecords: recordsIncludingNewBMIs, fhirContext: { ...get().fhirContext, error: null } };
+      });
+    } catch (error: any) {
+      console.error("Error fetching/mapping FHIR growth data:", error);
+      get().setFHIRContext({ error: error.message || "Failed to fetch/map FHIR growth data." });
     }
   }
 });
@@ -271,23 +325,14 @@ export const useAppStore = create<AppStoreState>()(
     {
       name: 'growth-chart-app-storage',
       storage: createJSONStorage(() => localStorage),
-      // Note: Persisting the fhirclient instance itself is problematic as it's complex and may contain non-serializable parts.
-      // The initializeFHIRClient action re-constructs it from serializable parts (tokenResponse, serverUrl).
-      // So, we might want to partialize the fhirContext to only store serializable bits if client itself causes issues.
-      // For now, the default behavior of persist might handle it, or it might store an empty object for client.
-      // A custom partialize or merge function for fhirContext might be needed for robust persistence of the client state.
-      // Let's partialize to avoid storing the client instance directly.
       partialize: (state) => ({
         ...state,
         fhirContext: {
-            // DO NOT persist client instance directly
             patientId: state.fhirContext.patientId,
             serverUrl: state.fhirContext.serverUrl,
-            error: state.fhirContext.error, // Persist error state
-            isRetrieved: state.fhirContext.isRetrieved, // Persist if retrieval was attempted
-            isAuthorized: state.fhirContext.isAuthorized, // Persist authorization status
-            // tokenResponse could be stored here if needed for re-auth without full launch,
-            // but initializeFHIRClient expects it from sessionStorage set by index-fhir.html
+            error: state.fhirContext.error,
+            isRetrieved: state.fhirContext.isRetrieved,
+            isAuthorized: state.fhirContext.isAuthorized,
         }
       })
     }
@@ -295,13 +340,13 @@ export const useAppStore = create<AppStoreState>()(
 );
 
 // --- Helper Hooks ---
-export const useCurrentPatient = (): Patient | null => { /* ... */
+export const useCurrentPatient = (): Patient | null => {
   const selectedPatientId = useAppStore((state) => state.selectedPatientId);
   const getPatientById = useAppStore((state) => state.getPatientById);
   if (!selectedPatientId) return null;
   return getPatientById(selectedPatientId) || null;
 };
-export const useCurrentPatientRecords = (): GrowthRecord[] => { /* ... */
+export const useCurrentPatientRecords = (): GrowthRecord[] => {
   const selectedPatientId = useAppStore((state) => state.selectedPatientId);
   const getRecordsForPatient = useAppStore((state) => state.getRecordsForPatient);
   if (!selectedPatientId) return [];

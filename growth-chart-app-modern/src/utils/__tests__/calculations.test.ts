@@ -1,4 +1,4 @@
-import { calculateBMI, calculateAnnualizedVelocity, generateVelocityDataSeries, VelocityDataPoint } from '../calculations';
+import { calculateBMI, calculateAnnualizedVelocity, generateVelocityDataSeries, VelocityDataPoint, calculateAgeInMonths } from '../calculations';
 import { GrowthRecord } from '../../store/appStore'; // Import GrowthRecord type for mock
 
 describe('BMI Calculator', () => {
@@ -31,6 +31,42 @@ describe('BMI Calculator', () => {
     });
   });
 });
+
+describe('calculateAgeInMonths', () => {
+  it('should calculate age in months correctly', () => {
+    expect(calculateAgeInMonths('2022-01-15', '2023-01-15')).toBe(12.00);
+    expect(calculateAgeInMonths('2022-01-15', '2022-02-15')).toBe(1.00);
+    expect(calculateAgeInMonths('2022-01-15', '2022-01-30')).toBeCloseTo(0.49, 2); // 15 days / 30.4375 = 0.4928...
+    expect(calculateAgeInMonths('2022-01-15', '2023-07-10')).toBeCloseTo(17.82, 2); // 1y, 5m, 25d -> 17 + 25/30.4375 = 17 + 0.821 = 17.821
+    expect(calculateAgeInMonths('2022-12-01', '2023-01-01')).toBe(1.00);
+    expect(calculateAgeInMonths('2023-01-01', '2023-01-01')).toBe(0.00);
+  });
+
+  it('should handle day differences correctly affecting month count', () => {
+    // DOB: Jan 30, 2022. Obs: Feb 1, 2022.
+    // Years = 0. Months = Feb(1) - Jan(0) = 1. Days = 1 - 30 = -29.
+    // dayDiff < 0: dayDiff = -29 + 31 (days in Jan) = 2. monthDiff = 1 - 1 = 0.
+    // totalMonths = 0. fraction = 2 / 30.4375 = 0.0657...
+    // Result: 0.07 (rounded to 2dp)
+    expect(calculateAgeInMonths('2022-01-30', '2022-02-01')).toBeCloseTo(0.07, 2);
+    expect(calculateAgeInMonths('2022-02-01', '2022-01-30')).toBeNaN();
+  });
+
+  it('should return NaN for invalid date strings', () => {
+    expect(calculateAgeInMonths('invalid-date', '2023-01-15')).toBeNaN();
+    expect(calculateAgeInMonths('2022-01-15', 'invalid-date')).toBeNaN();
+    expect(calculateAgeInMonths('2022-13-01', '2023-01-15')).toBeNaN(); // Invalid month
+  });
+
+  // Test for day fraction part specifically
+  it('calculates month fraction correctly', () => {
+    // 15 days should be close to 0.5 months (15 / 30.4375 = 0.4928...)
+    expect(calculateAgeInMonths('2023-01-01', '2023-01-16')).toBeCloseTo(0.49, 2); // 15 days difference
+    // 1 day should be approx 1/30.4375 = 0.0328...
+    expect(calculateAgeInMonths('2023-01-01', '2023-01-02')).toBeCloseTo(0.03, 2); // 1 day
+  });
+});
+
 
 // Mock GrowthRecord type for testing velocity functions
 const mockGrowthRecord = (

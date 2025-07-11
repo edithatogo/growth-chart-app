@@ -20,6 +20,12 @@ export default {
         tsconfig: 'tsconfig.json',
       },
     ],
+    '^.+\\.m?js$': 'babel-jest', // Add babel-jest for js/mjs files in node_modules if needed
   },
-  //transformIgnorePatterns: ['<rootDir>/node_modules/'],
+  transformIgnorePatterns: [
+    // Allow fhirclient and jose (and its dependencies if they also use ESM) to be transformed.
+    // This pattern means "ignore node_modules EXCEPT for fhirclient and jose".
+    "/node_modules/(?!fhirclient|jose)/",
+    "\\.pnp\\.[^\\/]+$"
+  ],
 };
