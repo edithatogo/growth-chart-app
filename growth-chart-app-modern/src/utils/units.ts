@@ -111,7 +111,7 @@ export function convertHeightForDisplay(
  * @param unit The unit of the measurement ('kg', 'lbs', 'cm', 'in').
  * @returns The value in metric units (kg or cm), or original value if already metric or unknown unit.
  */
-export function convertToMetricForCalc(value: number, unit: 'kg' | 'lbs' | 'cm' | 'in' | 'kg/m²'): number {
+export function convertToMetricForCalc(value: number, unit: GrowthRecord['unit']): number {
     switch (unit) {
         case 'lbs':
             return lbsToKg(value); // Raw value for calculation, not display rounded
