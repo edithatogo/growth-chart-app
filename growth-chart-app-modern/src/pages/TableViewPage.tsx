@@ -131,6 +131,21 @@ const TableViewPage: React.FC = () => {
   };
 
   const handleEditRecord = (record: GrowthRecord) => {
+    // Safeguard: Prevent editing FHIR records even if button somehow gets enabled/clicked
+    const originalRecord = recordsToDisplayRaw.find(r => r.id === record.id);
+    if (originalRecord?.isFHIRRecord) {
+      console.warn("Attempted to edit a FHIR record. This action is disabled.");
+      setFormMessage({type: 'error', text: 'FHIR records cannot be edited directly in this application.'});
+      setTimeout(() => setFormMessage(null), 3000);
+      // Ensure form is not shown for editing a FHIR record
+      if (editingRecordId === record.id) {
+        setShowForm(false);
+        setEditingRecordId(null);
+        resetFormFields();
+      }
+      return;
+    }
+
     setEditingRecordId(record.id);
     setFormDate(record.date.split('T')[0]);
     setFormAgeMonths(record.ageMonths);
@@ -329,7 +344,10 @@ const TableViewPage: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
               {recordsForDisplayTable.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.ageMonths - a.ageMonths)
-                .map((record) => (
+                .map((record) => {
+                  const originalRecord = recordsToDisplayRaw.find(r => r.id === record.id);
+                  const isFHIR = originalRecord?.isFHIRRecord;
+                  return (
                 <tr key={record.id} className="hover:bg-gray-50 dark:hover:bg-gray-600/70">
                   <td className="px-5 py-4 text-sm text-gray-700 dark:text-gray-200">{record.date}</td>
                   <td className="px-5 py-4 text-sm text-gray-700 dark:text-gray-200">{record.ageMonths}</td>
@@ -341,23 +359,33 @@ const TableViewPage: React.FC = () => {
                   <td className="px-5 py-4 text-sm text-gray-700 dark:text-gray-200">{record.unit}</td>
                   <td className="px-5 py-4 text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap max-w-xs truncate" title={record.notes}>{record.notes || 'N/A'}</td>
                   <td className="px-5 py-4 text-sm whitespace-nowrap">
+                    {isFHIR && (
+                      <span className="mr-2 px-1.5 py-0.5 text-xs font-semibold text-cyan-700 bg-cyan-100 dark:text-cyan-200 dark:bg-cyan-700/50 rounded-full inline-block align-middle" title="This record was sourced from FHIR">
+                        FHIR
+                      </span>
+                    )}
                     <button
-                        className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 mr-3 text-xs inline-flex items-center"
-                        onClick={() => handleEditRecord(recordsToDisplayRaw.find(r => r.id === record.id)!)} // Pass original raw record
-                        aria-label={`Edit record from ${record.date} for ${record.measurementType}`}
+                        className={`text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 mr-3 text-xs inline-flex items-center ${isFHIR ? 'opacity-50 cursor-not-allowed dark:opacity-60' : ''}`}
+                        onClick={() => handleEditRecord(originalRecord!)}
+                        aria-label={isFHIR ? "FHIR records cannot be edited" : `Edit record from ${record.date} for ${record.measurementType}`}
+                        disabled={isFHIR}
+                        title={isFHIR ? "FHIR records cannot be edited directly in this application." : `Edit record`}
                     >
                         <PencilSquareIcon className="h-4 w-4 mr-1" /> Edit
                     </button>
                     <button
-                        className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 text-xs inline-flex items-center"
+                        className={`text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 text-xs inline-flex items-center ${isFHIR ? 'opacity-50 cursor-not-allowed dark:opacity-60' : ''}`}
                         onClick={() => handleDeleteRecord(record.id, record.measurementType === 'Other' ? record.otherMeasurementName || 'Other' : record.measurementType, record.date)}
-                        aria-label={`Delete record from ${record.date} for ${record.measurementType}`}
+                        aria-label={isFHIR ? "FHIR records cannot be deleted" : `Delete record from ${record.date} for ${record.measurementType}`}
+                        disabled={isFHIR}
+                        title={isFHIR ? "FHIR records cannot be deleted directly in this application." : `Delete record`}
                     >
                         <TrashIcon className="h-4 w-4 mr-1" /> Delete
                     </button>
                   </td>
                 </tr>
-              ))}
+              );
+            })}
             </tbody>
           </table>
         </div>

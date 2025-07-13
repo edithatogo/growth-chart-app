@@ -206,13 +206,20 @@ const PatientSelectionPage: React.FC = () => {
               onKeyPress={(e) => e.key === 'Enter' && handleSelectPatient(patient.id)}
             >
               <div className="flex-grow">
-                <h3 className="text-lg font-medium text-gray-800 dark:text-gray-100">{patient.name}</h3>
+                 <h3 className="text-lg font-medium text-gray-800 dark:text-gray-100">
+                   {patient.name}
+                   {patient.isFHIRPatient && (
+                    <span className="ml-2 px-2 py-0.5 text-xs font-semibold text-cyan-700 bg-cyan-100 dark:text-cyan-200 dark:bg-cyan-700/50 rounded-full align-middle">
+                      FHIR
+                    </span>
+                  )}
+                 </h3>
                 <p className="text-sm text-gray-600 dark:text-gray-300">DOB: {patient.dob} | Sex: {patient.sex}</p>
                 {patient.condition && (
                   <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">Condition: {patient.condition}</p>
                 )}
               </div>
-              <div className="flex items-center space-x-2 flex-shrink-0 ml-2">
+               <div className="flex items-center space-x-2 flex-shrink-0 ml-2">
                 {selectedPatientId === patient.id && (
                   <span className="text-xs font-semibold text-blue-600 dark:text-blue-300 bg-blue-200 dark:bg-blue-700 px-2 py-1 rounded-full self-center">Selected</span>
                 )}

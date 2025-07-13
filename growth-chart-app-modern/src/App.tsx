@@ -9,6 +9,7 @@ import ChartViewPage from './pages/ChartViewPage';
 import TableViewPage from './pages/TableViewPage';
 import ParentalViewPage from './pages/ParentalViewPage';
 import SettingsPage from './pages/SettingsPage';
+import FHIRStatusDisplay from './components/FHIRStatusDisplay'; // Import the status display component
 
 const App: React.FC = () => {
   const darkMode = useAppStore((state) => state.settings.darkMode);
@@ -28,22 +29,33 @@ const App: React.FC = () => {
   const fhirContext = useAppStore((state) => state.fhirContext);
 
   useEffect(() => {
-    // Only initialize if not already attempted or if there was an error previously and we want to retry (e.g. on reload)
-    if (!fhirContext.isRetrieved || fhirContext.error) {
-        initializeFHIR().then(client => {
-            if (client && client.patient?.id) { // Check if client and patient id are available
-                // Successfully initialized and have patient context
-                console.log("FHIR client initialized in App.tsx, attempting to fetch patient data.");
-                fetchFHIRPatient(); // Fetch patient data after client is ready
-            } else if (client) {
-                // Client initialized but no patient context from launch (e.g., practitioner launch)
-                console.log("FHIR client initialized in App.tsx, but no patient context in launch.");
-                // Here, app might show a patient selection screen or other UI
-            }
-            // If client is null, initializeFHIR would have set an error in store or marked as no context found
-        });
+    // Initialize FHIR if status is 'idle' (initial load)
+    // or if it's 'no_context' (meaning prior init found no EHR launch, user might have navigated to launch.html manually)
+    // or if it's 'error' (allowing a retry on reload, though a manual retry button would be better UX for subsequent errors)
+    if (fhirContext.status === 'idle' || fhirContext.status === 'no_context' || fhirContext.status === 'error') {
+      console.log(`App.tsx: FHIR status is '${fhirContext.status}', attempting initialization.`);
+      initializeFHIR().then(client => {
+        // initializeFHIR now sets the status to 'ready', 'no_context', or 'error'.
+        // It also updates isAuthorized and isRetrieved.
+        if (getAppStore().fhirContext.status === 'ready' && client?.patient?.id) {
+          console.log("App.tsx: FHIR client ready with patient context, attempting to fetch patient data.");
+          fetchFHIRPatient(); // This will set status to 'fetch_patient' then 'fetch_growth_data' then 'ready' or 'error'
+        } else if (getAppStore().fhirContext.status === 'ready') {
+          console.log("App.tsx: FHIR client ready, but no patient context in launch (e.g., practitioner launch).");
+          // App can now show specific UI for this case, e.g., a patient search if applicable.
+        } else {
+          // Status will be 'no_context' or 'error', FHIRStatusDisplay will show appropriate message.
+          console.log(`App.tsx: FHIR initialization completed with status: ${getAppStore().fhirContext.status}. Error: ${getAppStore().fhirContext.error || 'none'}`);
+        }
+      });
     }
-  }, [initializeFHIR, fetchFHIRPatient, fhirContext.isRetrieved, fhirContext.error]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initializeFHIR, fetchFHIRPatient, fhirContext.status]); // Depend only on status for re-triggering logic
+  // Added getAppStore to read latest state directly after async initializeFHIR call.
+  // This is a bit of a workaround for not having the latest state immediately in the .then() closure.
+  // A more robust solution might involve initializeFHIR returning the new status or client.
+
+  const getAppStore = useAppStore.getState; // Helper to get current state
 
 
   return (
@@ -58,8 +70,10 @@ const App: React.FC = () => {
           </div>
         </header>
 
+        <FHIRStatusDisplay /> {/* Display FHIR status messages/errors */}
+
         {/* Main Content Area */}
-        <div className="flex flex-1 container mx-auto mt-4 mb-4">
+        <div className="flex flex-1 container mx-auto mt-4 mb-4"> {/* mt-4 provides some space from header/banner */}
           {/* Sidebar Navigation */}
           <nav className="w-64 bg-white dark:bg-gray-800 p-4 shadow rounded-lg mr-4 flex-shrink-0 self-start sticky top-20">
             <ul className="space-y-2">

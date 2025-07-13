@@ -11,6 +11,7 @@ export interface Patient {
   id: string; name: string; dob: string;
   sex: 'Male' | 'Female' | 'Other' | 'Unknown';
   condition?: string;
+  isFHIRPatient?: boolean;
 }
 export type NewGrowthRecordData = Omit<GrowthRecord, 'id'>;
 export interface GrowthRecord {
@@ -19,6 +20,7 @@ export interface GrowthRecord {
   otherMeasurementName?: string;
   value: number; unit: 'kg' | 'lbs' | 'cm' | 'in' | 'kg/m²' | string;
   notes?: string; interventionType?: string; interventionDetails?: string;
+  isFHIRRecord?: boolean;
 }
 export interface AppSettings {
   defaultChartType: 'WeightForAge' | 'HeightForAge' | 'HCForAge' | 'BMIForAge';
@@ -30,10 +32,22 @@ export interface FHIRContext {
   client?: Client;
   patientId?: string;
   serverUrl?: string;
+  status: FHIRStatus; // More granular status
   error?: string | null;
-  isRetrieved?: boolean;
-  isAuthorized?: boolean;
+  isRetrieved?: boolean; // Legacy or specific check, status is primary
+  isAuthorized?: boolean; // Legacy or specific check, status is primary
 }
+
+export type FHIRStatus =
+  | 'idle'              // Initial state, or after user logs out/clears context
+  | 'initializing'      // App is trying to initialize fhirclient.js from session or launch
+  | 'authorizing'       // FHIR.oauth2.ready() is in progress or client init from stored context
+  | 'no_context'        // Initialization complete, but no launch context found (e.g. direct app access)
+  | 'fetch_patient'     // Fetching patient resource
+  | 'fetch_growth_data' // Fetching observation (growth) data
+  | 'ready'             // FHIR client is ready, patient and data (if applicable) loaded
+  | 'error';            // An error occurred at some stage
+
 export interface AppStateValues {
   patients: Patient[]; growthRecords: GrowthRecord[]; settings: AppSettings;
   selectedPatientId: string | null; fhirContext: FHIRContext;
@@ -66,7 +80,10 @@ export const initialAppState: AppStateValues = {
     notifications: { appointmentReminders: true, newDataAlerts: false },
   },
   selectedPatientId: null,
-  fhirContext: { client: undefined, patientId: undefined, serverUrl: undefined, error: null, isRetrieved: false, isAuthorized: false }
+  fhirContext: {
+    client: undefined, patientId: undefined, serverUrl: undefined,
+    status: 'idle', error: null, isRetrieved: false, isAuthorized: false
+  }
 };
 
 // --- Store Creator ---
@@ -170,47 +187,87 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
     set((state) => ({ fhirContext: { ...state.fhirContext, ...context } })),
 
   clearFHIRContext: () =>
-    set({ fhirContext: { ...initialAppState.fhirContext, isRetrieved: true, isAuthorized: false } }),
+    set({ fhirContext: {
+      ...initialAppState.fhirContext,
+      status: 'idle', // Or 'no_context' if preferred after a clear
+      isRetrieved: true, // Mark as retrieved to prevent auto-reinitialization by App.tsx logic if not desired
+      isAuthorized: false
+    } }),
 
   initializeFHIRClient: async () => {
-    const currentFhirContext = get().fhirContext;
-    if (currentFhirContext.client || currentFhirContext.isRetrieved) {
-        get().setFHIRContext({ isRetrieved: true });
-        return currentFhirContext.client || null;
+    const currentStatus = get().fhirContext.status;
+    // Avoid re-initializing if already in a non-idle/non-error state, unless specifically desired
+    if (currentStatus !== 'idle' && currentStatus !== 'error' && currentStatus !== 'no_context') { // Allow re-init from no_context
+      // console.log("FHIR client initialization skipped, status:", currentStatus);
+      return get().fhirContext.client || null;
     }
+
+    get().setFHIRContext({ status: 'initializing', error: null, isRetrieved: false, isAuthorized: false });
     let clientInstance: Client | null = null;
+
     try {
+        // This part simulates FHIR.oauth2.ready() which would handle redirect and get credentials
+        // In our case, we try to load from sessionStorage which is populated by launch.html/index-fhir.html
         const storedContextString = sessionStorage.getItem('fhirContext');
         if (storedContextString) {
+            get().setFHIRContext({ status: 'authorizing' });
             const storedContext = JSON.parse(storedContextString);
+
             if (storedContext.serverUrl && storedContext.tokenResponse) {
-                clientInstance = FHIR.client({ serverUrl: storedContext.serverUrl, tokenResponse: storedContext.tokenResponse });
-                if (storedContext.patientId) clientInstance.patient.id = storedContext.patientId;
-                get().setFHIRContext({
-                    client: clientInstance, patientId: clientInstance.patient.id,
-                    serverUrl: clientInstance.serverUrl, error: null, isRetrieved: true, isAuthorized: true,
+                clientInstance = FHIR.client({
+                    serverUrl: storedContext.serverUrl,
+                    tokenResponse: storedContext.tokenResponse
                 });
-            } else { throw new Error("Stored FHIR context is incomplete."); }
+                if (storedContext.patientId) {
+                    clientInstance.patient.id = storedContext.patientId;
+                }
+
+                get().setFHIRContext({
+                    client: clientInstance,
+                    patientId: clientInstance.patient.id,
+                    serverUrl: clientInstance.serverUrl,
+                    status: 'ready', // Initially ready, subsequent fetches will change status
+                    error: null,
+                    isRetrieved: true,
+                    isAuthorized: true,
+                });
+                // console.log("FHIR client initialized successfully from session storage.");
+            } else {
+                throw new Error("Stored FHIR context is incomplete (missing serverUrl or tokenResponse).");
+            }
         } else {
-             get().setFHIRContext({ isRetrieved: true, error: null, isAuthorized: false });
+            // console.log("No FHIR context found in session storage.");
+            get().setFHIRContext({ status: 'no_context', isRetrieved: true, isAuthorized: false, error: null });
         }
     } catch (error: any) {
-        console.error("Error initializing FHIR client from session storage:", error);
-        get().setFHIRContext({ error: error.message || "Failed to initialize FHIR client.", isRetrieved: true, isAuthorized: false });
+        console.error("Error initializing FHIR client:", error);
+        get().setFHIRContext({
+            status: 'error',
+            error: error.message || "Failed to initialize FHIR client.",
+            isRetrieved: true,
+            isAuthorized: false
+        });
     }
     return clientInstance;
   },
 
   fetchFHIRPatientData: async () => {
-    const { client } = get().fhirContext;
-    const currentFhirPatientId = get().fhirContext.patientId;
-    if (!client || !client.patient?.id || !currentFhirPatientId) {
+    const { client, patientId: currentFhirPatientIdFromContext } = get().fhirContext;
+
+    if (!client || !client.patient?.id || !currentFhirPatientIdFromContext) {
       const errorMsg = "FHIR client not ready or patient ID missing for fetching patient data.";
-      console.warn(errorMsg); get().setFHIRContext({ error: errorMsg }); return;
+      // console.warn(errorMsg);
+      // Don't set error status here if initializeFHIRClient already set 'no_context' or 'error'
+      if (get().fhirContext.status !== 'no_context' && get().fhirContext.status !== 'error') {
+        get().setFHIRContext({ status: 'error', error: errorMsg });
+      }
+      return;
     }
+
+    get().setFHIRContext({ status: 'fetch_patient', error: null });
     try {
       const fhirPatient: fhirclient.FHIR.Patient = await client.patient.read();
-      console.log("Fetched FHIR Patient:", fhirPatient);
+      // console.log("Fetched FHIR Patient:", fhirPatient);
       let name = "Unknown FHIR Patient";
       if (fhirPatient.name && fhirPatient.name.length > 0) {
           const primaryName = fhirPatient.name.find(n => n.use === 'official') || fhirPatient.name[0];
@@ -219,36 +276,42 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
       const appPatient: Patient = {
         id: `FHIR-${fhirPatient.id}`, name: name, dob: fhirPatient.birthDate || "Unknown",
         sex: (fhirPatient.gender === "male" ? "Male" : fhirPatient.gender === "female" ? "Female" : fhirPatient.gender === "other" ? "Other" : "Unknown"),
+        isFHIRPatient: true,
       };
       let existingPatient = get().patients.find(p => p.id === appPatient.id);
       if (existingPatient) {
-        get().updatePatient(appPatient);
+        get().updatePatient({ ...existingPatient, ...appPatient }); // Ensure all fields are spread, including isFHIRPatient
       } else {
-        existingPatient = get().addPatient(appPatient);
+        existingPatient = get().addPatient(appPatient); // addPatient will receive the full appPatient including isFHIRPatient
       }
       get().selectPatient(existingPatient.id);
-      get().setFHIRContext({ error: null });
+      // Don't set error to null here, let fetchFHIRGrowthData manage the final status/error
+      // get().setFHIRContext({ error: null }); // This might prematurely clear an error from init if growth data fails
 
       // Now that patient is processed, fetch their growth data
-      await get().fetchFHIRGrowthData();
+      await get().fetchFHIRGrowthData(); // This will set status to 'fetch_growth_data' then 'ready' or 'error'
 
     } catch (error: any) {
       console.error("Error fetching FHIR Patient data:", error);
-      get().setFHIRContext({ error: error.message || "Failed to fetch FHIR patient data." });
+      get().setFHIRContext({ status: 'error', error: error.message || "Failed to fetch FHIR patient data." });
     }
   },
 
   fetchFHIRGrowthData: async () => {
-    const { client, patientId: fhirPatientId } = get().fhirContext;
-    const fhirAppPatient = get().patients.find(p => p.id === `FHIR-${fhirPatientId}`);
+    const { client, patientId: fhirPatientIdFromContext } = get().fhirContext;
+    const fhirAppPatient = get().patients.find(p => p.id === `FHIR-${fhirPatientIdFromContext}`);
 
-    if (!client || !fhirPatientId || !fhirAppPatient || !fhirAppPatient.dob || fhirAppPatient.dob === "Unknown") {
+    if (!client || !fhirPatientIdFromContext || !fhirAppPatient || !fhirAppPatient.dob || fhirAppPatient.dob === "Unknown") {
       const errorMsg = "FHIR client/patient ID not ready, or patient DOB unknown for fetching/processing growth data.";
-      console.warn(errorMsg);
-      get().setFHIRContext({ error: errorMsg });
+      // console.warn(errorMsg);
+       // Don't set error status here if initializeFHIRClient or fetchFHIRPatientData already set 'no_context' or 'error'
+      if (get().fhirContext.status !== 'no_context' && get().fhirContext.status !== 'error') {
+        get().setFHIRContext({ status: 'error', error: errorMsg });
+      }
       return;
     }
 
+    get().setFHIRContext({ status: 'fetch_growth_data', error: null });
     const loincToMeasurementType: Record<string, GrowthRecord['measurementType']> = {
       '29463-7': 'Weight', '8302-2': 'Height', '8306-3': 'Length',
       '8287-5': 'HeadCircumference', '39156-5': 'BMI',
@@ -278,6 +341,7 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
                   date: obs.effectiveDateTime.split('T')[0], ageMonths: ageMonths,
                   measurementType: measurementType, value: obs.valueQuantity.value!,
                   unit: unit as GrowthRecord['unit'],
+                  isFHIRRecord: true,
                 });
               }
             }
@@ -309,11 +373,14 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
                                 measurementType: 'BMI', value: bmi, unit: 'kg/m²',
                             });
                         }}}}});
-        return { growthRecords: recordsIncludingNewBMIs, fhirContext: { ...get().fhirContext, error: null } };
+        return {
+          growthRecords: recordsIncludingNewBMIs,
+          fhirContext: { ...get().fhirContext, status: 'ready', error: null }
+        };
       });
     } catch (error: any) {
       console.error("Error fetching/mapping FHIR growth data:", error);
-      get().setFHIRContext({ error: error.message || "Failed to fetch/map FHIR growth data." });
+      get().setFHIRContext({ status: 'error', error: error.message || "Failed to fetch/map FHIR growth data." });
     }
   }
 });
