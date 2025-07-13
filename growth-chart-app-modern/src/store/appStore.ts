@@ -136,13 +136,11 @@ export const storeCreator: StateCreator<AppStoreState> = (set, get) => ({
 
       if (newRecord.measurementType === 'Weight') {
         weightRecordForBMI = newRecord;
-        heightRecordForBMI = growthRecords.find( (r) => r.patientId === patientId && r.ageMonths === ageMonths && (r.measurementType === 'Height' || r.measurementType === 'Length') && r.id !== newRecord.id );
-        if (!heightRecordForBMI) heightRecordForBMI = growthRecords.find( (r) => r.patientId === patientId && r.ageMonths === ageMonths && (r.measurementType === 'Height' || r.measurementType === 'Length'));
+        weightRecordForBMI = newRecord;
+        heightRecordForBMI = growthRecords.find( (r) => r.patientId === patientId && r.ageMonths === ageMonths && (r.measurementType === 'Height' || r.measurementType === 'Length'));
       } else {
         heightRecordForBMI = newRecord;
-        weightRecordForBMI = growthRecords.find( (r) => r.patientId === patientId && r.ageMonths === ageMonths && r.measurementType === 'Weight' && r.id !== newRecord.id );
-        if (!weightRecordForBMI) weightRecordForBMI = growthRecords.find( (r) => r.patientId === patientId && r.ageMonths === ageMonths && r.measurementType === 'Weight');
-      }
+        weightRecordForBMI = growthRecords.find( (r) => r.patientId === patientId && r.ageMonths === ageMonths && r.measurementType === 'Weight');
 
       if (weightRecordForBMI && heightRecordForBMI) {
           if (new Date(weightRecordForBMI.date) > new Date(heightRecordForBMI.date)) recordDate = weightRecordForBMI.date; else recordDate = heightRecordForBMI.date;
