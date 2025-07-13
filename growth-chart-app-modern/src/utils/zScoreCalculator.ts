@@ -9,13 +9,14 @@ export interface LMSDataPoint {
 }
 
 /**
- * Performs linear interpolation between two points.
- * @param x The point at which to interpolate.
- * @param x0 Lower bound x-value.
- * @param y0 Lower bound y-value.
- * @param x1 Upper bound x-value.
- * @param y1 Upper bound y-value.
- * @returns The interpolated y-value.
+ * Estimates the y-value at a given x by linearly interpolating between two known points.
+ *
+ * @param x - The x-value at which to interpolate
+ * @param x0 - The x-value of the lower bound point
+ * @param y0 - The y-value of the lower bound point
+ * @param x1 - The x-value of the upper bound point
+ * @param y1 - The y-value of the upper bound point
+ * @returns The interpolated y-value at x, or y0 if x0 and x1 are equal
  */
 function linearInterpolate(x: number, x0: number, y0: number, x1: number, y1: number): number {
   if (x0 === x1) {
@@ -25,10 +26,13 @@ function linearInterpolate(x: number, x0: number, y0: number, x1: number, y1: nu
 }
 
 /**
- * Finds or interpolates LMS values for a given age from a sorted array of LMSDataPoints.
- * @param age The age for which to find/interpolate LMS values.
- * @param lmsDataSorted Array of LMSDataPoint objects, sorted by age.
- * @returns An object { l, m, s } or null if age is out of bounds or data is insufficient.
+ * Retrieves LMS (Lambda, Mu, Sigma) parameters for a specified age from a sorted array of LMS data points.
+ *
+ * If an exact age match exists, returns the corresponding LMS values. If not, linearly interpolates LMS values between the closest lower and upper bounding ages. Returns `null` if the age is outside the data range, interpolation is not possible, or required LMS parameters are missing.
+ *
+ * @param age - The target age for which to obtain LMS parameters
+ * @param lmsDataSorted - Array of LMSDataPoint objects sorted by age
+ * @returns An object containing interpolated or matched LMS values, or `null` if unavailable
  */
 export function getLMSForAge(age: number, lmsDataSorted: LMSDataPoint[]): { l: number; m: number; s: number } | null {
   if (!lmsDataSorted || lmsDataSorted.length === 0) {
@@ -86,12 +90,15 @@ export function getLMSForAge(age: number, lmsDataSorted: LMSDataPoint[]): { l: n
 
 
 /**
- * Calculates the Z-score for a given measurement value using L, M, S parameters.
- * @param value The patient's measurement (e.g., height, weight).
- * @param l L parameter (Box-Cox power).
- * @param m M parameter (Median).
- * @param s S parameter (Coefficient of Variation).
- * @returns The calculated Z-score, or NaN if parameters are invalid.
+ * Computes the Z-score for a measurement using LMS (Lambda, Mu, Sigma) parameters.
+ *
+ * Returns NaN if the calculation is not possible due to invalid input values, such as zero or negative S, non-positive value or M when L is near zero, or invalid power calculations.
+ *
+ * @param value - The measurement to be standardized (e.g., height, weight)
+ * @param l - The Box-Cox power (L parameter)
+ * @param m - The median (M parameter)
+ * @param s - The coefficient of variation (S parameter)
+ * @returns The calculated Z-score, or NaN if the input values are invalid
  */
 export function calculateZScore(value: number, l: number, m: number, s: number): number {
   if (s === 0) { // S should not be zero, indicates an issue with data or applicability
@@ -122,11 +129,14 @@ export function calculateZScore(value: number, l: number, m: number, s: number):
 }
 
 /**
- * Convenience function to get LMS values and calculate Z-score.
- * @param value Patient's measurement value.
- * @param age Patient's age (e.g., in months).
- * @param lmsDataSorted Array of LMSDataPoint objects, sorted by age, for the specific sex and measurement type.
- * @returns The calculated Z-score, or NaN if LMS not found or calculation fails.
+ * Calculates the Z-score for a measurement at a given age using LMS growth chart data.
+ *
+ * Retrieves LMS parameters for the specified age from a sorted array of LMS data points and computes the Z-score for the provided measurement value. Returns NaN if LMS parameters are unavailable or the calculation is invalid.
+ *
+ * @param value - The measurement value to evaluate
+ * @param age - The age corresponding to the measurement (typically in months)
+ * @param lmsDataSorted - Sorted array of LMS data points for the relevant population and measurement type
+ * @returns The calculated Z-score, or NaN if LMS parameters are not found or the calculation is invalid
  */
 export function getZScoreForMeasurement(value: number, age: number, lmsDataSorted: LMSDataPoint[]): number {
     const lms = getLMSForAge(age, lmsDataSorted);
