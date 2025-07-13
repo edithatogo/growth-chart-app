@@ -1,12 +1,13 @@
 // src/utils/calculations.ts
 
 /**
- * Calculates Body Mass Index (BMI).
- * BMI = weight (kg) / (height (m))^2
+ * Computes the Body Mass Index (BMI) from weight in kilograms and height in centimeters.
  *
- * @param weightKg Weight in kilograms.
- * @param heightCm Height in centimeters.
- * @returns The calculated BMI, or NaN if inputs are invalid (e.g., height is 0).
+ * Returns the BMI rounded to one decimal place, or NaN if height is zero or negative, or if weight is negative.
+ *
+ * @param weightKg - Weight in kilograms
+ * @param heightCm - Height in centimeters
+ * @returns The BMI value rounded to one decimal place, or NaN for invalid inputs
  */
 export function calculateBMI(weightKg: number, heightCm: number): number {
   if (heightCm <= 0 || weightKg < 0) {
@@ -19,10 +20,11 @@ export function calculateBMI(weightKg: number, heightCm: number): number {
 }
 
 /**
- * Calculates age in months between two dates.
- * @param dobString Date of birth string (YYYY-MM-DD).
- * @param observationDateString Observation date string (YYYY-MM-DD or full ISO string).
- * @returns Age in months, rounded to two decimal places, or NaN if dates are invalid or obsDate < dob.
+ * Calculates the precise age in months between a date of birth and an observation date.
+ *
+ * @param dobString - Date of birth in 'YYYY-MM-DD' format
+ * @param observationDateString - Observation date in 'YYYY-MM-DD' or ISO string format
+ * @returns Age in months as a decimal rounded to two decimal places, or NaN if dates are invalid or the observation date is before the date of birth
  */
 export function calculateAgeInMonths(dobString: string, observationDateString: string): number {
   const dob = new Date(dobString);
@@ -76,6 +78,13 @@ export interface VelocityDataPoint {
   originalRecord2Date: string;
 }
 
+/**
+ * Calculates the annualized growth velocity between two compatible growth records.
+ *
+ * Returns a velocity data point containing the midpoint age in months, the annualized velocity value (rounded to two decimals), the velocity unit, and the original record dates. Returns `null` if the records have mismatched measurement types or units, if the second record is not chronologically after the first, or if the measurement type is BMI or unknown.
+ *
+ * @returns A `VelocityDataPoint` with velocity information, or `null` if calculation is not possible.
+ */
 export function calculateAnnualizedVelocity(
   record1: GrowthRecord,
   record2: GrowthRecord
@@ -127,6 +136,14 @@ export function calculateAnnualizedVelocity(
   };
 }
 
+/**
+ * Generates a series of annualized growth velocity data points from an array of growth records.
+ *
+ * The records are sorted by age in months, and velocity is calculated between each consecutive pair using `calculateAnnualizedVelocity`. Only valid velocity points are included in the result.
+ *
+ * @param records - Array of growth records to process
+ * @returns An array of velocity data points representing annualized growth velocities between consecutive records
+ */
 export function generateVelocityDataSeries(
   records: GrowthRecord[]
 ): VelocityDataPoint[] {

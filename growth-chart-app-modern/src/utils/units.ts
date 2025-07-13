@@ -9,9 +9,11 @@ const INCHES_TO_CM = 2.54;
 // --- Weight Conversions ---
 
 /**
- * Converts kilograms to pounds.
- * @param kg Weight in kilograms.
- * @returns Weight in pounds, rounded to a suitable number of decimal places (e.g., 1 or 2).
+ * Converts a weight value from kilograms to pounds.
+ *
+ * Returns `NaN` if the input is not a valid number. The result is not rounded; display functions handle any necessary rounding.
+ *
+ * @returns The equivalent weight in pounds.
  */
 export function kgToLbs(kg: number): number {
   if (isNaN(kg)) return NaN;
@@ -20,9 +22,10 @@ export function kgToLbs(kg: number): number {
 }
 
 /**
- * Converts pounds to kilograms.
- * @param lbs Weight in pounds.
- * @returns Weight in kilograms, with more precision.
+ * Converts a weight value from pounds to kilograms.
+ *
+ * @param lbs - The weight in pounds
+ * @returns The equivalent weight in kilograms, or NaN if the input is not a number
  */
 export function lbsToKg(lbs: number): number {
   if (isNaN(lbs)) return NaN;
@@ -33,9 +36,10 @@ export function lbsToKg(lbs: number): number {
 // --- Height/Length Conversions ---
 
 /**
- * Converts centimeters to inches.
- * @param cm Height/length in centimeters.
- * @returns Height/length in inches, with more precision.
+ * Converts a value in centimeters to inches.
+ *
+ * @param cm - The length or height in centimeters.
+ * @returns The equivalent length or height in inches, or NaN if the input is not a number.
  */
 export function cmToInches(cm: number): number {
   if (isNaN(cm)) return NaN;
@@ -44,9 +48,10 @@ export function cmToInches(cm: number): number {
 }
 
 /**
- * Converts inches to centimeters.
- * @param inches Height/length in inches.
- * @returns Height/length in centimeters, with more precision.
+ * Converts a length from inches to centimeters.
+ *
+ * @param inches - The value in inches to convert
+ * @returns The equivalent length in centimeters, or NaN if the input is not a number
  */
 export function inchesToCm(inches: number): number {
   if (isNaN(inches)) return NaN;
@@ -62,11 +67,15 @@ export type HeightUnit = 'cm' | 'in';
 export type DisplayUnits = 'Metric' | 'Imperial';
 
 /**
- * Converts a weight value to the target display system if necessary.
- * @param value The weight value.
- * @param originalUnit The original unit of the weight ('kg' or 'lbs').
- * @param targetSystem The target display system ('Metric' or 'Imperial').
- * @returns Object with converted value and its unit string.
+ * Converts a weight value to the appropriate unit and format for the specified display system.
+ *
+ * If converting to Metric, pounds are converted to kilograms and rounded to 2 decimal places; kilograms are rounded to 2 decimal places.  
+ * If converting to Imperial, kilograms are converted to pounds and rounded to 1 decimal place; pounds are rounded to 1 decimal place.
+ *
+ * @param value - The weight value to convert
+ * @param originalUnit - The original unit of the weight ('kg' or 'lbs')
+ * @param targetSystem - The target display system ('Metric' or 'Imperial')
+ * @returns An object containing the converted value and its unit string
  */
 export function convertWeightForDisplay(
     value: number,
@@ -85,11 +94,15 @@ export function convertWeightForDisplay(
 }
 
 /**
- * Converts a height/length value to the target display system if necessary.
- * @param value The height/length value.
- * @param originalUnit The original unit of the height/length ('cm' or 'in').
- * @param targetSystem The target display system ('Metric' or 'Imperial').
- * @returns Object with converted value and its unit string.
+ * Converts a height or length value to the appropriate unit and format for the specified display system.
+ *
+ * If converting to Metric and the original unit is inches, the value is converted to centimeters; otherwise, centimeters are rounded to one decimal place.  
+ * If converting to Imperial and the original unit is centimeters, the value is converted to inches; otherwise, inches are rounded to one decimal place.
+ *
+ * @param value - The height or length value to convert
+ * @param originalUnit - The original unit of the value ('cm' or 'in')
+ * @param targetSystem - The target display system ('Metric' or 'Imperial')
+ * @returns An object containing the converted value and its unit string
  */
 export function convertHeightForDisplay(
     value: number,
@@ -106,10 +119,13 @@ export function convertHeightForDisplay(
 }
 
 /**
- * Converts a stored growth value to metric units (kg or cm) for calculations.
- * @param value The measurement value.
- * @param unit The unit of the measurement ('kg', 'lbs', 'cm', 'in').
- * @returns The value in metric units (kg or cm), or original value if already metric or unknown unit.
+ * Converts a measurement value to its metric equivalent (kg, cm, or kg/m²) for calculation purposes.
+ *
+ * Converts pounds to kilograms and inches to centimeters. Returns the original value if the unit is already metric or is BMI (kg/m²). If the unit is unsupported, logs a warning and returns the original value.
+ *
+ * @param value - The measurement value to convert
+ * @param unit - The unit of the measurement ('kg', 'lbs', 'cm', 'in', or 'kg/m²')
+ * @returns The value converted to metric units, or the original value if already metric or unsupported
  */
 export function convertToMetricForCalc(value: number, unit: 'kg' | 'lbs' | 'cm' | 'in' | 'kg/m²'): number {
     switch (unit) {
