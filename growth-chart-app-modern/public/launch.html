@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>SMART App Launch</title>
+    <!--
+        Assuming fhir-client.js is copied to the public directory.
+        Alternatively, a CDN link could be used, or a more complex setup
+        to serve it from node_modules if the server supports it.
+    -->
+    <script src="./fhir-client.js"></script>
+</head>
+<body>
+    Launching SMART App...
+    <script>
+        // Configuration for the SMART on FHIR authorization
+        // Replace with your actual client_id and sandbox details
+        // These are typical values for the public SMART Health IT sandbox
+        const clientConfig = {
+            // This is a public client_id for SMART Health IT sandbox, suitable for testing.
+            // For a real application, you would register your own client.
+            client_id: "my_web_app", // Replace with your registered client_id if using a different one
+
+            // Scope defines the permissions the app is requesting
+            scope: "patient/*.read launch openid profile fhirUser",
+            // Examples:
+            // "patient/Patient.read patient/Observation.read launch openid profile fhirUser"
+            // "patient/*.*" (for full access to patient compartment - use with caution)
+
+            // Redirect URI: Where the EHR should redirect after authorization.
+            // This MUST match one of the redirect URIs registered with the FHIR server for your client_id.
+            // It points to your index-fhir.html or the equivalent page that handles FHIR.oauth2.ready().
+            redirect_uri: "./index-fhir.html", // Relative to the public directory root
+
+            // The iss parameter will be provided by the EHR during launch,
+            // so fhirclient.js will pick it up automatically from the URL.
+            // We don't need to specify 'iss' here for `authorize`.
+        };
+
+        // Start the authorization process
+        // The FHIR.oauth2.authorize function will parse the 'launch' and 'iss'
+        // parameters from the URL query string (provided by the EHR)
+        // and then redirect the browser to the EHR's authorization server.
+        try {
+            FHIR.oauth2.authorize(clientConfig);
+        } catch (error) {
+            console.error("Error during FHIR.oauth2.authorize:", error);
+            document.body.innerText = "Error initiating SMART App launch. Check console for details. Ensure 'iss' and 'launch' parameters are in the URL when launching from an EHR.";
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>SMART App Authorization</title>
+    <!--
+        Assuming fhir-client.js is copied to the public directory.
+        Alternatively, a CDN link could be used.
+    -->
+    <script src="./fhir-client.js"></script>
+</head>
+<body>
+    Authorizing... Please wait.
+    <script>
+        // FHIR.oauth2.ready() processes the redirect from the authorization server.
+        // It extracts the authorization code (or error) from the URL,
+        // exchanges it for an access token, and initializes the FHIR client.
+        FHIR.oauth2.ready()
+            .then(client => {
+                // The client is now authorized and ready to make FHIR requests.
+                // client.patient.id contains the patient ID (if patient scope was granted)
+                // client.state.tokenResponse.access_token contains the access token
+                // client.serverUrl contains the FHIR server base URL
+
+                console.log("FHIR client authorized successfully!");
+                console.log("Patient ID:", client.patient.id);
+                console.log("FHIR Server URL:", client.serverUrl);
+                // console.log("Access Token:", client.state.tokenResponse.access_token); // Be careful logging tokens
+
+                // Store necessary FHIR context to be picked up by the main React app.
+                // sessionStorage is often preferred as the token is session-specific.
+                // localStorage could also be used if longer persistence across browser sessions is desired,
+                // but has security implications if not handled carefully.
+                sessionStorage.setItem('fhirContext', JSON.stringify({
+                    patientId: client.patient.id,
+                    serverUrl: client.serverUrl,
+                    tokenResponse: client.state.tokenResponse
+                    // Note: Storing the full tokenResponse (which includes access_token, refresh_token etc.)
+                    // in sessionStorage/localStorage has security implications.
+                    // A more secure approach for production might involve server-side token handling
+                    // or more restricted storage. For client-side only apps, this is common.
+                }));
+
+                // Redirect to the main application page.
+                // The path should be the root of your React application.
+                // If your app is not at the root, adjust the path accordingly (e.g., '/app/').
+                window.location.href = "/";
+
+            })
+            .catch(error => {
+                console.error("Error during FHIR.oauth2.ready():", error);
+                document.body.innerHTML = `
+                    <h2>Error during SMART App authorization:</h2>
+                    <pre>${JSON.stringify(error, null, 2)}</pre>
+                    <p>Please ensure you have authorized the app correctly and that the redirect URI is configured properly on the FHIR server.</p>
+                `;
+            });
+    </script>
+</body>
+</html>
