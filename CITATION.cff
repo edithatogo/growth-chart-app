@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: If you use this fork, please cite it using these metadata and identify the
+  commit or release used. Upstream attribution is recorded in references.
+title: SMART Pediatric Growth Chart
+authors:
+- name: SMART Platforms
+- name: Boston Children's Hospital
+repository-code: https://github.com/edithatogo/growth-chart-app
+url: https://github.com/edithatogo/growth-chart-app
+references:
+- type: software
+  title: SMART Pediatric Growth Chart
+  authors:
+  - name: SMART Platforms
+  - name: Boston Children's Hospital
+  repository-code: https://github.com/smart-on-fhir/growth-chart-app
+  url: https://github.com/smart-on-fhir/growth-chart-app
